@@ -223,7 +223,7 @@ class TestVideoHandlerValidation:
 
         message.answer.assert_called_once()
         call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_PENDING_REVIEW
+        assert call_text == templates.VIDEO_ALREADY_SENT
 
     @pytest.mark.asyncio
     async def test_too_early(

@@ -1,16 +1,30 @@
 """Общие fixtures для тестов."""
 import random
 import secrets
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from datetime import date, timedelta, datetime
 from unittest.mock import AsyncMock, MagicMock
 from aiogram.types import User, Chat, Message, CallbackQuery
+from dotenv import load_dotenv
 
-from aiogram import Bot
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
+# =============================================================================
+# ЗАГРУЗКА ТЕСТОВОГО ОКРУЖЕНИЯ
+# =============================================================================
+
+# Загружаем .env.test ПЕРЕД импортом настроек
+env_test_path = Path(__file__).parent.parent / ".env.test"
+if env_test_path.exists():
+    load_dotenv(env_test_path, override=True)
+else:
+    raise FileNotFoundError(
+        f"Файл .env.test не найден: {env_test_path}\n"
+        "Создайте .env.test с тестовыми credentials Supabase."
+    )
+
+# Теперь импортируем настройки (они загрузят переменные из .env.test)
 from supabase._async.client import create_client as acreate_client
 
 from app.config import get_settings
@@ -23,12 +37,12 @@ from app.utils.time_utils import get_tashkent_now
 
 
 # =============================================================================
-# DATABASE
+# DATABASE (ТЕСТОВАЯ)
 # =============================================================================
 
 @pytest_asyncio.fixture
 async def supabase():
-    """Создаёт подключение к Supabase."""
+    """Создаёт подключение к ТЕСТОВОЙ Supabase."""
     settings = get_settings()
     client = await acreate_client(settings.supabase_url, settings.supabase_key)
     yield client
@@ -41,49 +55,33 @@ async def supabase():
 
 @pytest_asyncio.fixture
 async def user_service(supabase):
-    """UserService с реальной БД."""
+    """UserService с тестовой БД."""
     return UserService(supabase)
 
 
 @pytest_asyncio.fixture
 async def manager_service(supabase):
-    """ManagerService с реальной БД."""
+    """ManagerService с тестовой БД."""
     return ManagerService(supabase)
 
 
 @pytest_asyncio.fixture
 async def course_service(supabase):
-    """CourseService с реальной БД."""
+    """CourseService с тестовой БД."""
     return CourseService(supabase)
 
 
 @pytest_asyncio.fixture
-async def topic_service(bot):
-    """TopicService с реальным ботом."""
+async def topic_service(mock_bot):
+    """TopicService с mock ботом."""
     settings = get_settings()
-    return TopicService(bot=bot, group_chat_id=settings.manager_group_id)
+    return TopicService(bot=mock_bot, group_chat_id=settings.manager_group_id)
 
 
 @pytest_asyncio.fixture
 async def intake_logs_service(supabase):
-    """IntakeLogsService с реальной БД."""
+    """IntakeLogsService с тестовой БД."""
     return IntakeLogsService(supabase)
-
-
-# =============================================================================
-# BOT
-# =============================================================================
-
-@pytest_asyncio.fixture
-async def bot():
-    """Реальный бот для тестов."""
-    settings = get_settings()
-    bot = Bot(
-        token=settings.bot_token,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    yield bot
-    await bot.session.close()
 
 
 # =============================================================================
@@ -93,6 +91,7 @@ async def bot():
 async def cleanup_course(supabase, course_id: int) -> None:
     """Удаляет курс и связанные intake_logs."""
     await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
+    await supabase.table("reminders_sent").delete().eq("course_id", course_id).execute()
     await supabase.table("courses").delete().eq("id", course_id).execute()
 
 
@@ -101,7 +100,7 @@ async def cleanup_user(supabase, user_id: int) -> None:
     # Сначала находим все курсы пользователя
     courses = await supabase.table("courses").select("id").eq("user_id", user_id).execute()
 
-    # Удаляем intake_logs и courses
+    # Удаляем intake_logs, reminders_sent и courses
     for course in courses.data or []:
         await cleanup_course(supabase, course["id"])
 
@@ -304,16 +303,6 @@ async def test_future_course(supabase, test_user_with_telegram):
 
 
 # =============================================================================
-# REAL USER (твой аккаунт для E2E)
-# =============================================================================
-
-@pytest_asyncio.fixture
-async def real_telegram_id():
-    """Твой реальный telegram_id для E2E тестов."""
-    return 641677101
-
-
-# =============================================================================
 # FAKE AIOGRAM OBJECTS
 # =============================================================================
 
@@ -492,28 +481,53 @@ def mock_regular_video_message(fake_user, fake_chat):
 
 
 # =============================================================================
-# REDIS
-# =============================================================================
-
-@pytest_asyncio.fixture
-async def redis():
-    """Redis клиент для тестов."""
-    from redis.asyncio import from_url
-    settings = get_settings()
-    client = from_url(settings.redis_url)
-    yield client
-    await client.close()
-
-
-# =============================================================================
-# MOCK BOT FOR TASKS
+# BOT (MOCK)
 # =============================================================================
 
 @pytest.fixture
-def mock_bot():
-    """Mock бота для тестов tasks."""
-    bot = MagicMock()
-    bot.send_message = AsyncMock()
-    bot.edit_message_text = AsyncMock()
-    bot.pin_chat_message = AsyncMock()
+def bot():
+    """Mock бота для всех тестов (не делает реальных API вызовов)."""
+    mock = MagicMock()
+    mock.send_message = AsyncMock(return_value=MagicMock(message_id=123))
+    mock.edit_message_text = AsyncMock()
+    mock.edit_forum_topic = AsyncMock()
+    mock.create_forum_topic = AsyncMock(return_value=MagicMock(message_thread_id=456))
+    mock.delete_message = AsyncMock()
+    mock.pin_chat_message = AsyncMock()
+    mock.send_video_note = AsyncMock()
+    mock.get_file = AsyncMock()
+    mock.download_file = AsyncMock()
+    mock.session = MagicMock()
+    mock.session.close = AsyncMock()
+    return mock
+
+
+# Алиас для обратной совместимости
+@pytest.fixture
+def mock_bot(bot):
+    """Алиас для bot fixture."""
     return bot
+
+
+# =============================================================================
+# REDIS (MOCK)
+# =============================================================================
+
+@pytest.fixture
+def redis():
+    """Mock Redis для тестов."""
+    mock = MagicMock()
+    mock.get = AsyncMock(return_value=None)
+    mock.set = AsyncMock(return_value=True)
+    mock.setex = AsyncMock(return_value=True)
+    mock.delete = AsyncMock(return_value=1)
+    mock.exists = AsyncMock(return_value=False)
+    mock.close = AsyncMock()
+    return mock
+
+
+# Алиас для обратной совместимости
+@pytest.fixture
+def mock_redis(redis):
+    """Алиас для redis fixture."""
+    return redis

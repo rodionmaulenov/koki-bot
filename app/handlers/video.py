@@ -67,17 +67,14 @@ async def video_handler(
         await message.answer(templates.VIDEO_ONLY_CIRCLES)
         return
 
-    # 6. Проверяем что сегодня ещё не отправляла
+    # 6. Проверяем что сегодня ещё не отправляла (только 1 видео в день)
     current_day = course.get("current_day", 1)
     existing_log = await intake_logs_service.get_by_course_and_day(
         course_id=course["id"],
         day=current_day,
     )
     if existing_log:
-        if existing_log.get("status") == "pending_review":
-            await message.answer(templates.VIDEO_PENDING_REVIEW)
-        else:
-            await message.answer(templates.VIDEO_ALREADY_SENT)
+        await message.answer(templates.VIDEO_ALREADY_SENT)
         return
 
     # 7. Проверяем не слишком ли рано

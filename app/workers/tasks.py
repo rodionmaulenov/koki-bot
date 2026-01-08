@@ -265,7 +265,7 @@ async def cleanup_expired_links():
 
 
 
-@broker.task(schedule=[{"cron": "*/5 * * * *"}])
+@broker.task(schedule=[{"cron": "* * * * *"}])
 async def refresh_active_dashboard():
     """Обновляет дашборд активных курсов."""
 
