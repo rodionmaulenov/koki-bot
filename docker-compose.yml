@@ -1,0 +1,58 @@
+# =============================================================================
+# Malika Bot — Docker Compose
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis — брокер для Taskiq
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  # ---------------------------------------------------------------------------
+  # Bot — Long Polling
+  # ---------------------------------------------------------------------------
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./temp:/app/temp
+
+  # ---------------------------------------------------------------------------
+  # Worker — выполняет задачи из очереди
+  # ---------------------------------------------------------------------------
+  worker:
+    build: .
+    command: uv run taskiq worker app.workers.broker:broker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - ./temp:/app/temp
+
+  # ---------------------------------------------------------------------------
+  # Scheduler — запускает задачи по расписанию
+  # ---------------------------------------------------------------------------
+  scheduler:
+    build: .
+    command: uv run taskiq scheduler app.workers.scheduler:scheduler
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:

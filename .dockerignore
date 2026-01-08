@@ -1,0 +1,29 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Tests (не нужны в prod)
+tests/
+
+# Environment
+.env
+
+# Temp
+temp/
+
+# IDE
+.idea/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Docs
+*.md

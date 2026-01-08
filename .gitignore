@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Environment
+.env
+
+# Temp
+temp/
+
+# IDE
+.idea/
