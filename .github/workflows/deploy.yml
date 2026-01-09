@@ -85,6 +85,7 @@ jobs:
             MANAGER_GROUP_ID=${{ secrets.MANAGER_GROUP_ID }}
             COMMANDS_THREAD_ID=${{ secrets.COMMANDS_THREAD_ID }}
             GENERAL_THREAD_ID=${{ secrets.GENERAL_THREAD_ID }}
+            RULES_MESSAGE_ID=${{ secrets.RULES_MESSAGE_ID }}
             EOF
 
             # Создаём docker-compose.yml
