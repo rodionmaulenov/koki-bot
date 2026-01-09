@@ -14,6 +14,16 @@ def mock_state():
     return state
 
 
+@pytest.fixture
+def mock_commands_messages_service():
+    """Mock CommandsMessagesService."""
+    service = MagicMock()
+    service.get_all = AsyncMock(return_value=[])
+    service.delete_all = AsyncMock()
+    service.add = AsyncMock()
+    return service
+
+
 class TestAddCommand:
     """Тесты для /add команды (FSM)."""
 
@@ -23,6 +33,7 @@ class TestAddCommand:
         mock_message,
         mock_state,
         manager_service,
+        mock_commands_messages_service,
     ):
         """Ошибка если не менеджер."""
         from app.handlers.group import add_command
@@ -33,6 +44,7 @@ class TestAddCommand:
             message=message,
             state=mock_state,
             manager_service=manager_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         message.reply.assert_called_once()
@@ -49,6 +61,7 @@ class TestAddCommand:
         mock_state,
         manager_service,
         test_manager,
+        mock_commands_messages_service,
     ):
         """Спрашивает ФИО после команды."""
         from app.handlers.group import add_command
@@ -62,6 +75,7 @@ class TestAddCommand:
             message=message,
             state=mock_state,
             manager_service=manager_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Проверяем что спросил ФИО
@@ -82,6 +96,7 @@ class TestAddCommand:
         course_service,
         bot,
         test_manager,
+        mock_commands_messages_service,
     ):
         """Создаёт ссылку после ввода ФИО."""
         from app.handlers.group import add_process_name
@@ -105,6 +120,7 @@ class TestAddCommand:
             user_service=user_service,
             course_service=course_service,
             bot=bot,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Проверяем ответ
@@ -126,6 +142,7 @@ class TestAddCommand:
         bot,
         test_manager,
         supabase,
+        mock_commands_messages_service,
     ):
         """Создаёт user в БД."""
         from app.handlers.group import add_process_name
@@ -149,6 +166,7 @@ class TestAddCommand:
             user_service=user_service,
             course_service=course_service,
             bot=bot,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Проверяем что user создан
@@ -170,6 +188,7 @@ class TestAddCommand:
         bot,
         test_manager,
         supabase,
+        mock_commands_messages_service,
     ):
         """Создаёт course в БД."""
         from app.handlers.group import add_process_name
@@ -193,6 +212,7 @@ class TestAddCommand:
             user_service=user_service,
             course_service=course_service,
             bot=bot,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Находим user
@@ -222,6 +242,7 @@ class TestAddCommand:
         course_service,
         bot,
         test_manager,
+        mock_commands_messages_service,
     ):
         """Ошибка если ФИО неполное (меньше 3 слов)."""
         from app.handlers.group import add_process_name
@@ -239,6 +260,7 @@ class TestAddCommand:
             user_service=user_service,
             course_service=course_service,
             bot=bot,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Просит ввести полное ФИО
@@ -259,6 +281,7 @@ class TestAddVideoCommand:
         mock_message,
         mock_state,
         manager_service,
+        mock_commands_messages_service,
     ):
         """Ошибка если не менеджер."""
         from app.handlers.group import add_video_command
@@ -269,6 +292,7 @@ class TestAddVideoCommand:
             message=message,
             state=mock_state,
             manager_service=manager_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         message.reply.assert_called_once()
@@ -282,6 +306,7 @@ class TestAddVideoCommand:
         mock_state,
         manager_service,
         test_manager,
+        mock_commands_messages_service,
     ):
         """Спрашивает ФИО после команды."""
         from app.handlers.group import add_video_command
@@ -295,6 +320,7 @@ class TestAddVideoCommand:
             message=message,
             state=mock_state,
             manager_service=manager_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         message.reply.assert_called_once()
@@ -311,6 +337,7 @@ class TestAddVideoCommand:
         user_service,
         course_service,
         test_manager,
+        mock_commands_messages_service,
     ):
         """Ошибка если девушка не найдена."""
         from app.handlers.group import add_video_process_name
@@ -327,6 +354,7 @@ class TestAddVideoCommand:
             state=mock_state,
             user_service=user_service,
             course_service=course_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         message.reply.assert_called_once()
@@ -346,6 +374,7 @@ class TestAddVideoCommand:
         test_user_with_telegram,
         test_active_course,
         supabase,
+        mock_commands_messages_service,
     ):
         """Разрешает обычное видео."""
         from app.handlers.group import add_video_process_name
@@ -362,6 +391,7 @@ class TestAddVideoCommand:
             state=mock_state,
             user_service=user_service,
             course_service=course_service,
+            commands_messages_service=mock_commands_messages_service,
         )
 
         # Проверяем ответ
@@ -648,6 +678,7 @@ class TestClearCommand:
     async def test_clear_deletes_saved_messages(
         self,
         mock_message,
+        mock_state,
         bot,
         mock_commands_messages_service,
     ):
@@ -657,11 +688,6 @@ class TestClearCommand:
         message = mock_message(text="/clear", user_id=123)
         message.message_id = 1000
         message.delete = AsyncMock()
-        message.answer = AsyncMock()
-
-        status_message = MagicMock()
-        status_message.delete = AsyncMock()
-        message.answer.return_value = status_message
 
         deleted_ids = []
         async def mock_delete(chat_id, message_id):
@@ -672,9 +698,13 @@ class TestClearCommand:
 
         await clear_command(
             message=message,
+            state=mock_state,
             bot=bot,
             commands_messages_service=mock_commands_messages_service,
         )
+
+        # FSM сброшен
+        mock_state.clear.assert_called_once()
 
         # Своё сообщение удалено
         message.delete.assert_called_once()
@@ -685,14 +715,11 @@ class TestClearCommand:
         # Таблица очищена
         mock_commands_messages_service.delete_all.assert_called_once()
 
-        # Отчёт отправлен
-        message.answer.assert_called_once()
-        assert "5" in message.answer.call_args[0][0]
-
     @pytest.mark.asyncio
     async def test_clear_handles_empty_table(
         self,
         mock_message,
+        mock_state,
         bot,
     ):
         """Нет сохранённых сообщений — ничего не удаляем."""
@@ -701,7 +728,6 @@ class TestClearCommand:
         message = mock_message(text="/clear", user_id=123)
         message.message_id = 100
         message.delete = AsyncMock()
-        message.answer = AsyncMock()
 
         # Пустая таблица
         mock_service = MagicMock()
@@ -710,20 +736,22 @@ class TestClearCommand:
 
         await clear_command(
             message=message,
+            state=mock_state,
             bot=bot,
             commands_messages_service=mock_service,
         )
 
+        # FSM сброшен
+        mock_state.clear.assert_called_once()
+
         # Своё сообщение удалено
         message.delete.assert_called_once()
-
-        # Отчёт НЕ отправлен
-        message.answer.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_clear_skips_rules_message(
         self,
         mock_message,
+        mock_state,
         bot,
         monkeypatch,
     ):
@@ -734,11 +762,6 @@ class TestClearCommand:
         message = mock_message(text="/clear", user_id=123)
         message.message_id = 1000
         message.delete = AsyncMock()
-        message.answer = AsyncMock()
-
-        status_message = MagicMock()
-        status_message.delete = AsyncMock()
-        message.answer.return_value = status_message
 
         # ID правил = 200 (один из сохранённых)
         rules_id = 200
@@ -761,6 +784,7 @@ class TestClearCommand:
 
         await clear_command(
             message=message,
+            state=mock_state,
             bot=bot,
             commands_messages_service=mock_service,
         )
@@ -770,3 +794,30 @@ class TestClearCommand:
         # Остальные удалены
         assert 100 in deleted_ids
         assert 300 in deleted_ids
+
+    @pytest.mark.asyncio
+    async def test_clear_resets_fsm_state(
+        self,
+        mock_message,
+        mock_state,
+        bot,
+        mock_commands_messages_service,
+    ):
+        """Сбрасывает FSM если был в процессе /add."""
+        from app.handlers.group import clear_command
+
+        message = mock_message(text="/clear", user_id=123)
+        message.delete = AsyncMock()
+
+        # Симулируем что FSM был активен
+        mock_state.get_state = AsyncMock(return_value="AddGirlStates:waiting_for_name")
+
+        await clear_command(
+            message=message,
+            state=mock_state,
+            bot=bot,
+            commands_messages_service=mock_commands_messages_service,
+        )
+
+        # FSM сброшен
+        mock_state.clear.assert_called_once()

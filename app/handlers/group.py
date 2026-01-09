@@ -1,6 +1,5 @@
 """Команды менеджеров в группе."""
 
-import asyncio
 import logging
 import secrets
 from aiogram import Router, F
@@ -19,6 +18,54 @@ settings = get_settings()
 
 
 # =============================================================================
+# /clear — очистить топик "Команды" (ПЕРВЫМ для перехвата FSM)
+# =============================================================================
+
+@router.message(
+    Command("clear"),
+    F.chat.id == settings.manager_group_id,
+    F.message_thread_id == settings.commands_thread_id,
+)
+async def clear_command(message: Message, state: FSMContext, bot, commands_messages_service):
+    """Удаляет сохранённые сообщения в топике, кроме правил."""
+
+    # Сбрасываем FSM (если был в процессе /add или /add_video)
+    await state.clear()
+
+    # Удаляем сообщение с командой
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    # Получаем все сохранённые message_id
+    message_ids = await commands_messages_service.get_all()
+
+    if not message_ids:
+        return
+
+    # ID правил (не удаляем)
+    rules_id = settings.rules_message_id
+
+    for msg_id in message_ids:
+        # Пропускаем правила
+        if rules_id and msg_id == rules_id:
+            continue
+
+        try:
+            await bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=msg_id,
+            )
+        except Exception:
+            # Сообщение уже удалено или нет прав
+            pass
+
+    # Очищаем таблицу
+    await commands_messages_service.delete_all()
+
+
+# =============================================================================
 # /add — создание ссылки (FSM)
 # =============================================================================
 
@@ -27,18 +74,20 @@ settings = get_settings()
     F.chat.id == settings.manager_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
-async def add_command(message: Message, state: FSMContext, manager_service):
+async def add_command(message: Message, state: FSMContext, manager_service, commands_messages_service):
     """Начало диалога /add."""
     manager = await manager_service.get_by_telegram_id(message.from_user.id)
     if not manager:
-        await message.reply(templates.MANAGER_NOT_FOUND)
+        response = await message.reply(templates.MANAGER_NOT_FOUND)
+        await commands_messages_service.add(response.message_id)
         return
 
     # Сохраняем manager_id в состояние
     await state.update_data(manager_id=manager["id"])
     await state.set_state(AddGirlStates.waiting_for_name)
 
-    await message.reply("👩 Введи ФИО девушки:")
+    response = await message.reply("👩 Введи ФИО девушки:")
+    await commands_messages_service.add(response.message_id)
 
 
 @router.message(
@@ -52,12 +101,14 @@ async def add_process_name(
     user_service,
     course_service,
     bot,
+    commands_messages_service,
 ):
     """Получили имя — создаём ссылку."""
     girl_name = message.text.strip()
 
     if not girl_name or len(girl_name.split()) < 3:
-        await message.reply("❌ Введи полное ФИО (Фамилия Имя Отчество):")
+        response = await message.reply("❌ Введи полное ФИО (Фамилия Имя Отчество):")
+        await commands_messages_service.add(response.message_id)
         return
 
     data = await state.get_data()
@@ -72,7 +123,8 @@ async def add_process_name(
         # Проверяем, нет ли активного курса
         active_course = await course_service.get_active_by_user_id(existing_user["id"])
         if active_course and active_course.get("status") in ("setup", "active"):
-            await message.reply(templates.MANAGER_USER_ALREADY_ON_COURSE)
+            response = await message.reply(templates.MANAGER_USER_ALREADY_ON_COURSE)
+            await commands_messages_service.add(response.message_id)
             await state.clear()
             return
 
@@ -89,20 +141,22 @@ async def add_process_name(
             invite_code=invite_code,
         )
     except ValueError:
-        await message.reply(templates.MANAGER_USER_ALREADY_ON_COURSE)
+        response = await message.reply(templates.MANAGER_USER_ALREADY_ON_COURSE)
+        await commands_messages_service.add(response.message_id)
         await state.clear()
         return
 
     bot_info = await bot.get_me()
     link = f"https://t.me/{bot_info.username}?start={course['invite_code']}"
 
-    await message.reply(
+    response = await message.reply(
         templates.MANAGER_LINK_CREATED.format(
             girl_name=girl_name,
             link=link,
         ),
         parse_mode="HTML",
     )
+    await commands_messages_service.add(response.message_id)
 
     await state.clear()
 
@@ -116,17 +170,19 @@ async def add_process_name(
     F.chat.id == settings.manager_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
-async def add_video_command(message: Message, state: FSMContext, manager_service):
+async def add_video_command(message: Message, state: FSMContext, manager_service, commands_messages_service):
     """Начало диалога /add_video."""
     manager = await manager_service.get_by_telegram_id(message.from_user.id)
     if not manager:
-        await message.reply(templates.MANAGER_NOT_FOUND)
+        response = await message.reply(templates.MANAGER_NOT_FOUND)
+        await commands_messages_service.add(response.message_id)
         return
 
     await state.update_data(manager_id=manager["id"])
     await state.set_state(AddVideoStates.waiting_for_name)
 
-    await message.reply("👩 Введи ФИО девушки:")
+    response = await message.reply("👩 Введи ФИО девушки:")
+    await commands_messages_service.add(response.message_id)
 
 
 @router.message(
@@ -139,12 +195,14 @@ async def add_video_process_name(
     state: FSMContext,
     user_service,
     course_service,
+    commands_messages_service,
 ):
     """Получили имя — разрешаем видео."""
     girl_name = message.text.strip()
 
     if not girl_name or len(girl_name) < 3:
-        await message.reply("❌ Введи корректное ФИО (минимум 3 символа):")
+        response = await message.reply("❌ Введи корректное ФИО (минимум 3 символа):")
+        await commands_messages_service.add(response.message_id)
         return
 
     data = await state.get_data()
@@ -161,19 +219,22 @@ async def add_video_process_name(
         else:
             text = f"❌ Девушка «{girl_name}» не найдена.\n\nУ тебя нет активных девушек."
 
-        await message.reply(text)
+        response = await message.reply(text)
+        await commands_messages_service.add(response.message_id)
         await state.clear()
         return
 
     course = await course_service.get_active_by_user_id(user["id"])
     if not course:
-        await message.reply(templates.MANAGER_COURSE_NOT_FOUND)
+        response = await message.reply(templates.MANAGER_COURSE_NOT_FOUND)
+        await commands_messages_service.add(response.message_id)
         await state.clear()
         return
 
     await course_service.update(course_id=course["id"], allow_video=True)
 
-    await message.reply(templates.MANAGER_VIDEO_ALLOWED.format(girl_name=girl_name))
+    response = await message.reply(templates.MANAGER_VIDEO_ALLOWED.format(girl_name=girl_name))
+    await commands_messages_service.add(response.message_id)
     await state.clear()
 
 
@@ -399,59 +460,3 @@ async def extend_course_callback(
             total_days=new_total,
         )
     )
-
-
-# =============================================================================
-# /clear — очистить топик "Команды"
-# =============================================================================
-
-@router.message(
-    Command("clear"),
-    F.chat.id == settings.manager_group_id,
-    F.message_thread_id == settings.commands_thread_id,
-)
-async def clear_command(message: Message, bot, commands_messages_service):
-    """Удаляет сохранённые сообщения в топике, кроме правил."""
-
-    # Удаляем сообщение с командой
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    # Получаем все сохранённые message_id
-    message_ids = await commands_messages_service.get_all()
-
-    if not message_ids:
-        return
-
-    # ID правил (не удаляем)
-    rules_id = settings.rules_message_id
-
-    deleted = 0
-    for msg_id in message_ids:
-        # Пропускаем правила
-        if rules_id and msg_id == rules_id:
-            continue
-
-        try:
-            await bot.delete_message(
-                chat_id=message.chat.id,
-                message_id=msg_id,
-            )
-            deleted += 1
-        except Exception:
-            # Сообщение уже удалено или нет прав
-            pass
-
-    # Очищаем таблицу
-    await commands_messages_service.delete_all()
-
-    # Отправляем отчёт (удалится через 5 сек)
-    if deleted > 0:
-        status = await message.answer(f"🧹 Удалено {deleted} сообщений")
-        await asyncio.sleep(5)
-        try:
-            await status.delete()
-        except Exception:
-            pass
