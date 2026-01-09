@@ -288,6 +288,29 @@ async def refresh_active_dashboard():
     )
 
 
+@broker.task(schedule=[{"cron": "* * * * *"}])
+async def refresh_refusals_dashboard():
+    """Обновляет дашборд отказов."""
+
+    settings = get_settings()
+    supabase = await get_supabase()
+
+    dashboard_service = DashboardService(
+        supabase=supabase,
+        group_chat_id=settings.manager_group_id,
+    )
+    stats_service = StatsMessagesService(supabase)
+
+    refusals_text = await dashboard_service.generate_refusals(days=10)
+    await _update_or_create_dashboard(
+        stats_service=stats_service,
+        dashboard_type="refusals",
+        text=refusals_text,
+        chat_id=settings.manager_group_id,
+        thread_id=settings.general_thread_id,
+    )
+
+
 async def _update_or_create_dashboard(
         stats_service: StatsMessagesService,
         dashboard_type: str,
