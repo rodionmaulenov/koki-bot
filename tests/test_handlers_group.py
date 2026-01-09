@@ -630,3 +630,108 @@ class TestExtendCourseCallback:
 
         call_text = callback.message.edit_text.call_args[0][0]
         assert call_text == templates.MANAGER_COURSE_NOT_FOUND
+
+
+class TestClearCommand:
+    """Тесты для /clear команды."""
+
+    @pytest.mark.asyncio
+    async def test_clear_deletes_messages(
+        self,
+        mock_message,
+        bot,
+    ):
+        """Команда удаляет сообщения."""
+        from app.handlers.group import clear_command
+
+        message = mock_message(text="/clear", user_id=123)
+        message.message_id = 1000
+        message.delete = AsyncMock()
+        message.answer = AsyncMock()
+
+        # Mock ответ с методом delete
+        status_message = MagicMock()
+        status_message.delete = AsyncMock()
+        message.answer.return_value = status_message
+
+        # bot.delete_message успешен для части сообщений
+        delete_count = 0
+        async def mock_delete(chat_id, message_id):
+            nonlocal delete_count
+            if delete_count < 5:  # Удаляем только 5 сообщений
+                delete_count += 1
+                return True
+            raise Exception("Message not found")
+
+        bot.delete_message = mock_delete
+
+        await clear_command(message=message, bot=bot)
+
+        # Своё сообщение удалено
+        message.delete.assert_called_once()
+
+        # Отчёт отправлен
+        message.answer.assert_called_once()
+        assert "5" in message.answer.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_clear_handles_no_messages(
+        self,
+        mock_message,
+        bot,
+    ):
+        """Команда обрабатывает случай когда нет сообщений для удаления."""
+        from app.handlers.group import clear_command
+
+        message = mock_message(text="/clear", user_id=123)
+        message.message_id = 100
+        message.delete = AsyncMock()
+        message.answer = AsyncMock()
+
+        # bot.delete_message всегда ошибка (нет сообщений)
+        async def mock_delete(chat_id, message_id):
+            raise Exception("Message not found")
+
+        bot.delete_message = mock_delete
+
+        await clear_command(message=message, bot=bot)
+
+        # Своё сообщение удалено
+        message.delete.assert_called_once()
+
+        # Отчёт НЕ отправлен (deleted = 0)
+        message.answer.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_clear_skips_pinned_messages(
+        self,
+        mock_message,
+        bot,
+    ):
+        """Закреплённые сообщения не удаляются (ошибка от Telegram)."""
+        from app.handlers.group import clear_command
+
+        message = mock_message(text="/clear", user_id=123)
+        message.message_id = 100
+        message.delete = AsyncMock()
+        message.answer = AsyncMock()
+
+        status_message = MagicMock()
+        status_message.delete = AsyncMock()
+        message.answer.return_value = status_message
+
+        # Некоторые сообщения удаляются, некоторые нет (закреплены)
+        call_count = 0
+        async def mock_delete(chat_id, message_id):
+            nonlocal call_count
+            call_count += 1
+            if message_id % 2 == 0:  # Чётные удаляются
+                return True
+            raise Exception("Can't delete pinned message")
+
+        bot.delete_message = mock_delete
+
+        await clear_command(message=message, bot=bot)
+
+        # Команда не упала
+        message.delete.assert_called_once()

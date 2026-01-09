@@ -1,6 +1,7 @@
 """Команды менеджеров в группе."""
 
 import logging
+import asyncio
 import secrets
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -398,3 +399,46 @@ async def extend_course_callback(
             total_days=new_total,
         )
     )
+
+
+# =============================================================================
+# /clear — очистить топик "Команды"
+# =============================================================================
+
+@router.message(
+    Command("clear"),
+    F.chat.id == settings.manager_group_id,
+    F.message_thread_id == settings.commands_thread_id,
+)
+async def clear_command(message: Message, bot):
+    """Удаляет последние сообщения в топике, кроме закреплённых."""
+
+    # Удаляем сообщение с командой
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    # Пробуем удалить последние 100 сообщений
+    current_id = message.message_id
+    deleted = 0
+
+    for msg_id in range(current_id - 1, current_id - 101, -1):
+        try:
+            await bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=msg_id,
+            )
+            deleted += 1
+        except Exception:
+            # Сообщение не существует, закреплено, или нет прав
+            pass
+
+    # Отправляем отчёт (удалится через 5 сек)
+    if deleted > 0:
+        status = await message.answer(f"🧹 Удалено {deleted} сообщений")
+        await asyncio.sleep(5)
+        try:
+            await status.delete()
+        except Exception:
+            pass
