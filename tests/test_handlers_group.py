@@ -214,7 +214,7 @@ class TestAddCommand:
         assert course_result.data[0]["invite_used"] is False
 
     @pytest.mark.asyncio
-    async def test_short_name_error(
+    async def test_incomplete_name_error(
         self,
         mock_message,
         mock_state,
@@ -223,11 +223,11 @@ class TestAddCommand:
         bot,
         test_manager,
     ):
-        """Ошибка если ФИО слишком короткое."""
+        """Ошибка если ФИО неполное (меньше 3 слов)."""
         from app.handlers.group import add_process_name
 
         message = mock_message(
-            text="Аб",  # Меньше 3 символов
+            text="Иванова Мария",  # Только 2 слова
             user_id=test_manager["telegram_id"],
         )
 
@@ -241,10 +241,10 @@ class TestAddCommand:
             bot=bot,
         )
 
-        # Просит ввести корректное ФИО
+        # Просит ввести полное ФИО
         message.reply.assert_called_once()
         call_text = message.reply.call_args[0][0]
-        assert "корректное" in call_text.lower() or "минимум" in call_text.lower()
+        assert "полное фио" in call_text.lower() or "фамилия имя отчество" in call_text.lower()
 
         # FSM НЕ очищен — ждём правильный ввод
         mock_state.clear.assert_not_called()
@@ -635,13 +635,23 @@ class TestExtendCourseCallback:
 class TestClearCommand:
     """Тесты для /clear команды."""
 
+    @pytest.fixture
+    def mock_commands_messages_service(self):
+        """Mock CommandsMessagesService."""
+        service = MagicMock()
+        service.get_all = AsyncMock(return_value=[100, 200, 300, 400, 500])
+        service.delete_all = AsyncMock()
+        service.add = AsyncMock()
+        return service
+
     @pytest.mark.asyncio
-    async def test_clear_deletes_messages(
+    async def test_clear_deletes_saved_messages(
         self,
         mock_message,
         bot,
+        mock_commands_messages_service,
     ):
-        """Команда удаляет сообщения."""
+        """Команда удаляет только сохранённые сообщения."""
         from app.handlers.group import clear_command
 
         message = mock_message(text="/clear", user_id=123)
@@ -649,38 +659,43 @@ class TestClearCommand:
         message.delete = AsyncMock()
         message.answer = AsyncMock()
 
-        # Mock ответ с методом delete
         status_message = MagicMock()
         status_message.delete = AsyncMock()
         message.answer.return_value = status_message
 
-        # bot.delete_message успешен для части сообщений
-        delete_count = 0
+        deleted_ids = []
         async def mock_delete(chat_id, message_id):
-            nonlocal delete_count
-            if delete_count < 5:  # Удаляем только 5 сообщений
-                delete_count += 1
-                return True
-            raise Exception("Message not found")
+            deleted_ids.append(message_id)
+            return True
 
         bot.delete_message = mock_delete
 
-        await clear_command(message=message, bot=bot)
+        await clear_command(
+            message=message,
+            bot=bot,
+            commands_messages_service=mock_commands_messages_service,
+        )
 
         # Своё сообщение удалено
         message.delete.assert_called_once()
+
+        # Удалены только сохранённые ID
+        assert set(deleted_ids) == {100, 200, 300, 400, 500}
+
+        # Таблица очищена
+        mock_commands_messages_service.delete_all.assert_called_once()
 
         # Отчёт отправлен
         message.answer.assert_called_once()
         assert "5" in message.answer.call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_clear_handles_no_messages(
+    async def test_clear_handles_empty_table(
         self,
         mock_message,
         bot,
     ):
-        """Команда обрабатывает случай когда нет сообщений для удаления."""
+        """Нет сохранённых сообщений — ничего не удаляем."""
         from app.handlers.group import clear_command
 
         message = mock_message(text="/clear", user_id=123)
@@ -688,31 +703,36 @@ class TestClearCommand:
         message.delete = AsyncMock()
         message.answer = AsyncMock()
 
-        # bot.delete_message всегда ошибка (нет сообщений)
-        async def mock_delete(chat_id, message_id):
-            raise Exception("Message not found")
+        # Пустая таблица
+        mock_service = MagicMock()
+        mock_service.get_all = AsyncMock(return_value=[])
+        mock_service.delete_all = AsyncMock()
 
-        bot.delete_message = mock_delete
-
-        await clear_command(message=message, bot=bot)
+        await clear_command(
+            message=message,
+            bot=bot,
+            commands_messages_service=mock_service,
+        )
 
         # Своё сообщение удалено
         message.delete.assert_called_once()
 
-        # Отчёт НЕ отправлен (deleted = 0)
+        # Отчёт НЕ отправлен
         message.answer.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_clear_skips_pinned_messages(
+    async def test_clear_skips_rules_message(
         self,
         mock_message,
         bot,
+        monkeypatch,
     ):
-        """Закреплённые сообщения не удаляются (ошибка от Telegram)."""
+        """Сообщение с правилами не удаляется."""
+        from app.handlers import group
         from app.handlers.group import clear_command
 
         message = mock_message(text="/clear", user_id=123)
-        message.message_id = 100
+        message.message_id = 1000
         message.delete = AsyncMock()
         message.answer = AsyncMock()
 
@@ -720,18 +740,58 @@ class TestClearCommand:
         status_message.delete = AsyncMock()
         message.answer.return_value = status_message
 
-        # Некоторые сообщения удаляются, некоторые нет (закреплены)
-        call_count = 0
+        # ID правил = 200 (один из сохранённых)
+        rules_id = 200
+
+        mock_settings = MagicMock()
+        mock_settings.rules_message_id = rules_id
+        monkeypatch.setattr(group, "settings", mock_settings)
+
+        # Сервис возвращает ID включая rules_id
+        mock_service = MagicMock()
+        mock_service.get_all = AsyncMock(return_value=[100, 200, 300])
+        mock_service.delete_all = AsyncMock()
+
+        deleted_ids = []
         async def mock_delete(chat_id, message_id):
-            nonlocal call_count
-            call_count += 1
-            if message_id % 2 == 0:  # Чётные удаляются
-                return True
-            raise Exception("Can't delete pinned message")
+            deleted_ids.append(message_id)
+            return True
 
         bot.delete_message = mock_delete
 
-        await clear_command(message=message, bot=bot)
+        await clear_command(
+            message=message,
+            bot=bot,
+            commands_messages_service=mock_service,
+        )
 
-        # Команда не упала
-        message.delete.assert_called_once()
+        # rules_id НЕ был удалён
+        assert rules_id not in deleted_ids
+        # Остальные удалены
+        assert 100 in deleted_ids
+        assert 300 in deleted_ids
+
+
+class TestSaveCommandsMessage:
+    """Тесты для сохранения сообщений."""
+
+    @pytest.mark.asyncio
+    async def test_saves_message_id(
+        self,
+        mock_message,
+    ):
+        """Сохраняет message_id в базу."""
+        from app.handlers.group import save_commands_message
+
+        message = mock_message(text="test message", user_id=123)
+        message.message_id = 12345
+
+        mock_service = MagicMock()
+        mock_service.add = AsyncMock()
+
+        await save_commands_message(
+            message=message,
+            commands_messages_service=mock_service,
+        )
+
+        mock_service.add.assert_called_once_with(12345)

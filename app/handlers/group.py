@@ -56,8 +56,8 @@ async def add_process_name(
     """Получили имя — создаём ссылку."""
     girl_name = message.text.strip()
 
-    if not girl_name or len(girl_name) < 3:
-        await message.reply("❌ Введи корректное ФИО (минимум 3 символа):")
+    if not girl_name or len(girl_name.split()) < 3:
+        await message.reply("❌ Введи полное ФИО (Фамилия Имя Отчество):")
         return
 
     data = await state.get_data()
@@ -410,8 +410,8 @@ async def extend_course_callback(
     F.chat.id == settings.manager_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
-async def clear_command(message: Message, bot):
-    """Удаляет последние сообщения в топике, кроме правил."""
+async def clear_command(message: Message, bot, commands_messages_service):
+    """Удаляет сохранённые сообщения в топике, кроме правил."""
 
     # Удаляем сообщение с командой
     try:
@@ -419,15 +419,18 @@ async def clear_command(message: Message, bot):
     except Exception:
         pass
 
-    # ID сообщения с правилами (не удаляем)
+    # Получаем все сохранённые message_id
+    message_ids = await commands_messages_service.get_all()
+
+    if not message_ids:
+        return
+
+    # ID правил (не удаляем)
     rules_id = settings.rules_message_id
 
-    # Пробуем удалить последние 100 сообщений
-    current_id = message.message_id
     deleted = 0
-
-    for msg_id in range(current_id - 1, current_id - 101, -1):
-        # Пропускаем сообщение с правилами
+    for msg_id in message_ids:
+        # Пропускаем правила
         if rules_id and msg_id == rules_id:
             continue
 
@@ -438,8 +441,11 @@ async def clear_command(message: Message, bot):
             )
             deleted += 1
         except Exception:
-            # Сообщение не существует или нет прав
+            # Сообщение уже удалено или нет прав
             pass
+
+    # Очищаем таблицу
+    await commands_messages_service.delete_all()
 
     # Отправляем отчёт (удалится через 5 сек)
     if deleted > 0:
@@ -449,3 +455,16 @@ async def clear_command(message: Message, bot):
             await status.delete()
         except Exception:
             pass
+
+
+# =============================================================================
+# Сохранение всех сообщений в топике "Команды"
+# =============================================================================
+
+@router.message(
+    F.chat.id == settings.manager_group_id,
+    F.message_thread_id == settings.commands_thread_id,
+)
+async def save_commands_message(message: Message, commands_messages_service):
+    """Сохраняет message_id всех сообщений в топике Команды."""
+    await commands_messages_service.add(message.message_id)

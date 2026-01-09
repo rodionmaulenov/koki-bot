@@ -21,6 +21,8 @@ from app.services.courses import CourseService
 from app.services.intake_logs import IntakeLogsService
 from app.services.topic import TopicService
 from app.services.gemini import GeminiService
+from app.services.stats_messages import StatsMessagesService
+from app.services.commands_messages import CommandsMessagesService
 
 # Логирование
 logging.basicConfig(
@@ -70,6 +72,8 @@ async def main():
         group_chat_id=settings.manager_group_id,
     )
     dp["gemini_service"] = GeminiService()
+    dp["stats_messages_service"] = StatsMessagesService(supabase)
+    dp["commands_messages_service"] = CommandsMessagesService(supabase)
     dp["settings"] = settings
     dp["bot"] = bot
     dp["supabase"] = supabase
