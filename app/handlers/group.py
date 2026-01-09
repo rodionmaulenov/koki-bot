@@ -70,7 +70,7 @@ async def add_process_name(
     if existing_user:
         # Проверяем, нет ли активного курса
         active_course = await course_service.get_active_by_user_id(existing_user["id"])
-        if active_course and active_course.get("status") == "active":
+        if active_course and active_course.get("status") in ("setup", "active"):
             await message.reply(templates.MANAGER_USER_ALREADY_ON_COURSE)
             await state.clear()
             return

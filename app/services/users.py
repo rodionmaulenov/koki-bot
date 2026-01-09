@@ -33,6 +33,14 @@ class UserService:
 
     async def set_telegram_id(self, user_id: int, telegram_id: int) -> None:
         """Установить telegram_id пользователю."""
+        # Сначала очищаем telegram_id у других юзеров (если был привязан ранее)
+        await self.supabase.table("users") \
+            .update({"telegram_id": None}) \
+            .eq("telegram_id", telegram_id) \
+            .neq("id", user_id) \
+            .execute()
+
+        # Устанавливаем telegram_id текущему юзеру
         await self.supabase.table("users") \
             .update({"telegram_id": telegram_id}) \
             .eq("id", user_id) \
