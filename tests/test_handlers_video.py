@@ -453,3 +453,61 @@ class TestExtendedCourseLogic:
         # Проверяем сообщение
         call_text = message.answer.call_args[0][0]
         assert call_text == templates.VIDEO_COURSE_FINISHED
+
+    @pytest.mark.asyncio
+    async def test_closes_topic_on_course_complete(
+        self,
+        mock_video_message,
+        user_service,
+        course_service,
+        intake_logs_service,
+        manager_service,
+        mock_gemini_confirmed,
+        bot,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Закрывает топик когда курс завершается."""
+        from app.handlers.video import video_handler
+        from app.services.gemini import GeminiService
+        from unittest.mock import MagicMock
+
+        # Устанавливаем topic_id пользователю
+        topic_id = 12345
+        await supabase.table("users") \
+            .update({"topic_id": topic_id}) \
+            .eq("id", test_user_with_telegram["id"]) \
+            .execute()
+
+        # Устанавливаем день 21 и total_days = 21 (стандартный курс)
+        await supabase.table("courses") \
+            .update({"current_day": 21, "total_days": 21}) \
+            .eq("id", test_active_course["id"]) \
+            .execute()
+
+        # Mock topic_service
+        mock_topic_service = MagicMock()
+        mock_topic_service.send_video = AsyncMock()
+        mock_topic_service.update_progress = AsyncMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+
+        with patch.object(GeminiService, 'download_video') as mock_download:
+            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
+            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=intake_logs_service,
+                topic_service=mock_topic_service,
+                manager_service=manager_service,
+                gemini_service=mock_gemini_confirmed,
+                bot=bot,
+            )
+
+        # Проверяем что close_topic был вызван
+        mock_topic_service.close_topic.assert_called_once_with(topic_id)

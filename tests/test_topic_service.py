@@ -253,3 +253,33 @@ class TestTopicServiceSendReviewButtons:
             day=5,
             reason="Тест",
         )
+
+
+class TestTopicServiceCloseTopic:
+    """Тесты закрытия топика."""
+
+    @pytest.mark.asyncio
+    async def test_closes_topic(self, bot):
+        """Закрывает топик."""
+        bot.close_forum_topic = AsyncMock()
+
+        service = TopicService(bot=bot, group_chat_id=-1001234567890)
+
+        await service.close_topic(topic_id=12345)
+
+        bot.close_forum_topic.assert_called_once_with(
+            chat_id=-1001234567890,
+            message_thread_id=12345,
+        )
+
+    @pytest.mark.asyncio
+    async def test_handles_api_error(self, bot):
+        """Обрабатывает ошибку API без исключения."""
+        bot.close_forum_topic = AsyncMock(
+            side_effect=TelegramAPIError(method="closeForumTopic", message="Error")
+        )
+
+        service = TopicService(bot=bot, group_chat_id=-1001234567890)
+
+        # Не должно бросить исключение
+        await service.close_topic(topic_id=12345)

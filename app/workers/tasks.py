@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from app.services.courses import CourseService
 from app.services.dashboard import DashboardService
+from app.services.topic import TopicService
 from app.config import get_settings
 from app.services.stats_messages import StatsMessagesService
 from app.services.users import UserService
@@ -157,6 +158,7 @@ async def send_refusals():
     user_service = UserService(supabase)
     intake_logs_service = IntakeLogsService(supabase)
     dashboard_service = DashboardService(supabase, settings.manager_group_id)
+    topic_service = TopicService(bot, settings.manager_group_id)
 
     today = get_tashkent_now().date().isoformat()
     time_from, time_to = calculate_time_range_after(120)
@@ -194,6 +196,12 @@ async def send_refusals():
 
         # Завершаем курс
         await course_service.set_refused(course_id)
+
+        # Закрываем топик
+        user = await user_service.get_by_id(course["user_id"])
+        topic_id = user.get("topic_id") if user else None
+        if topic_id:
+            await topic_service.close_topic(topic_id)
 
         # Записываем в intake_logs
         await intake_logs_service.create(

@@ -420,6 +420,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        topic_service,
         bot,
         test_user_with_telegram,
         test_active_course,
@@ -437,6 +438,7 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            topic_service=topic_service,
             bot=bot,
         )
 
@@ -456,6 +458,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        topic_service,
         bot,
     ):
         """Курс не найден."""
@@ -468,6 +471,7 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            topic_service=topic_service,
             bot=bot,
         )
 
@@ -481,6 +485,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        topic_service,
         bot,
         test_user_with_telegram,
         test_active_course,
@@ -503,11 +508,54 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            topic_service=topic_service,
             bot=bot,
         )
 
         call_text = callback.message.edit_text.call_args[0][0]
         assert "уже завершён" in call_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_closes_topic_on_complete(
+        self,
+        mock_callback,
+        course_service,
+        user_service,
+        bot,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Закрывает топик при завершении курса."""
+        from app.handlers.group import complete_course_callback
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Устанавливаем topic_id пользователю
+        topic_id = 12345
+        await supabase.table("users") \
+            .update({"topic_id": topic_id}) \
+            .eq("id", test_user_with_telegram["id"]) \
+            .execute()
+
+        # Mock topic_service
+        mock_topic_service = MagicMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        callback = mock_callback(
+            data=f"complete_{test_active_course['id']}",
+            user_id=test_user_with_telegram["telegram_id"],
+        )
+
+        await complete_course_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            topic_service=mock_topic_service,
+            bot=bot,
+        )
+
+        # Проверяем что close_topic был вызван с правильным topic_id
+        mock_topic_service.close_topic.assert_called_once_with(topic_id)
 
 
 class TestExtendCourseCallback:

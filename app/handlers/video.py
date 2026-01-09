@@ -139,6 +139,9 @@ async def video_handler(
                 current_day=total_days,
             )
             response_text = templates.VIDEO_COURSE_FINISHED
+            # Закрываем топик
+            if topic_id:
+                await topic_service.close_topic(topic_id)
         else:
             await course_service.update(
                 course_id=course["id"],

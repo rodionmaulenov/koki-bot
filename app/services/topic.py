@@ -158,3 +158,13 @@ class TopicService:
             )
         except TelegramAPIError as e:
             log_error(f"Failed to send review buttons: {e}")
+
+    async def close_topic(self, topic_id: int) -> None:
+        """Закрывает топик (курс завершён или отказ)."""
+        try:
+            await self.bot.close_forum_topic(
+                chat_id=self.group_chat_id,
+                message_thread_id=topic_id,
+            )
+        except TelegramAPIError as e:
+            log_error(f"Failed to close topic: {e}")

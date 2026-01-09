@@ -348,6 +348,7 @@ async def complete_course_callback(
     callback: CallbackQuery,
     course_service,
     user_service,
+    topic_service,
     bot,
 ):
     """Менеджер завершает курс досрочно."""
@@ -379,6 +380,11 @@ async def complete_course_callback(
             )
         except Exception:
             pass
+
+    # Закрываем топик
+    topic_id = user.get("topic_id") if user else None
+    if topic_id:
+        await topic_service.close_topic(topic_id)
 
     girl_name = user.get("name", "—") if user else "—"
     await callback.message.answer(
