@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     manager_group_id: int
     commands_thread_id: int
     general_thread_id: int
+    rules_message_id: int | None = None
 
     class Config:
         env_file = BASE_DIR / ".env"
