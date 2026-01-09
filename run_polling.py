@@ -23,6 +23,7 @@ from app.services.topic import TopicService
 from app.services.gemini import GeminiService
 from app.services.stats_messages import StatsMessagesService
 from app.services.commands_messages import CommandsMessagesService
+from app.middleware import SaveCommandsMessageMiddleware
 
 # Логирование
 logging.basicConfig(
@@ -77,6 +78,9 @@ async def main():
     dp["settings"] = settings
     dp["bot"] = bot
     dp["supabase"] = supabase
+
+    # Middleware для сохранения message_id в топике Команды
+    dp.message.middleware(SaveCommandsMessageMiddleware())
 
     logger.info("🚀 Бот запускается (polling)...")
 

@@ -770,28 +770,3 @@ class TestClearCommand:
         # Остальные удалены
         assert 100 in deleted_ids
         assert 300 in deleted_ids
-
-
-class TestSaveCommandsMessage:
-    """Тесты для сохранения сообщений."""
-
-    @pytest.mark.asyncio
-    async def test_saves_message_id(
-        self,
-        mock_message,
-    ):
-        """Сохраняет message_id в базу."""
-        from app.handlers.group import save_commands_message
-
-        message = mock_message(text="test message", user_id=123)
-        message.message_id = 12345
-
-        mock_service = MagicMock()
-        mock_service.add = AsyncMock()
-
-        await save_commands_message(
-            message=message,
-            commands_messages_service=mock_service,
-        )
-
-        mock_service.add.assert_called_once_with(12345)

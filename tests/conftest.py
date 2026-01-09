@@ -350,11 +350,13 @@ def mock_message(fake_user, fake_chat):
             user_id: int = 123456789,
             chat_id: int = None,
             message_id: int = 1,
+            message_thread_id: int = None,
     ):
         chat_id = chat_id or user_id
 
         message = MagicMock(spec=Message)
         message.message_id = message_id
+        message.message_thread_id = message_thread_id
         message.date = datetime.now()
         message.chat = fake_chat(chat_id=chat_id)
         message.from_user = fake_user(user_id=user_id)

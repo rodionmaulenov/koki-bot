@@ -455,16 +455,3 @@ async def clear_command(message: Message, bot, commands_messages_service):
             await status.delete()
         except Exception:
             pass
-
-
-# =============================================================================
-# Сохранение всех сообщений в топике "Команды"
-# =============================================================================
-
-@router.message(
-    F.chat.id == settings.manager_group_id,
-    F.message_thread_id == settings.commands_thread_id,
-)
-async def save_commands_message(message: Message, commands_messages_service):
-    """Сохраняет message_id всех сообщений в топике Команды."""
-    await commands_messages_service.add(message.message_id)
