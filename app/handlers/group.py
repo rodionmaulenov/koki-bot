@@ -95,10 +95,13 @@ async def add_process_name(
     bot_info = await bot.get_me()
     link = f"https://t.me/{bot_info.username}?start={course['invite_code']}"
 
-    await message.reply(templates.MANAGER_LINK_CREATED.format(
-        girl_name=girl_name,
-        link=link,
-    ))
+    await message.reply(
+        templates.MANAGER_LINK_CREATED.format(
+            girl_name=girl_name,
+            link=link,
+        ),
+        parse_mode="HTML",
+    )
 
     await state.clear()
 
