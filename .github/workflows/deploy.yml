@@ -82,10 +82,12 @@ jobs:
             SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             REDIS_URL=redis://redis:6379/0
-            MANAGER_GROUP_ID=${{ secrets.MANAGER_GROUP_ID }}
+            COMMANDS_GROUP_ID=${{ secrets.COMMANDS_GROUP_ID }}
             COMMANDS_THREAD_ID=${{ secrets.COMMANDS_THREAD_ID }}
             GENERAL_THREAD_ID=${{ secrets.GENERAL_THREAD_ID }}
             RULES_MESSAGE_ID=${{ secrets.RULES_MESSAGE_ID }}
+            KOK_GROUP_ID=${{ secrets.KOK_GROUP_ID }}
+            DASHBOARD_TYPE=${{ secrets.DASHBOARD_TYPE }}
             EOF
 
             # Создаём docker-compose.yml
