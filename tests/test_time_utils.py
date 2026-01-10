@@ -70,39 +70,217 @@ class TestMonthsDict:
             assert i in MONTHS
 
 
+class TestParseTimeString:
+    """Тесты для parse_time_string."""
+
+    def test_parses_hour_only(self):
+        """Парсит только час."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        result = parse_time_string("15")
+        assert result == time(15, 0)
+
+    def test_parses_hour_minute(self):
+        """Парсит час и минуты."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        result = parse_time_string("15:30")
+        assert result == time(15, 30)
+
+    def test_parses_morning_words(self):
+        """Парсит словесные варианты утра."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        assert parse_time_string("morning") == time(9, 0)
+        assert parse_time_string("утром") == time(9, 0)
+        assert parse_time_string("утро") == time(9, 0)
+
+    def test_parses_evening_words(self):
+        """Парсит словесные варианты вечера."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        assert parse_time_string("вечером") == time(19, 0)
+        assert parse_time_string("evening") == time(19, 0)
+
+    def test_parses_day_words(self):
+        """Парсит словесные варианты дня."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        assert parse_time_string("днём") == time(14, 0)
+        assert parse_time_string("день") == time(14, 0)
+
+    def test_empty_string_returns_none(self):
+        """Пустая строка возвращает None."""
+        from app.utils.time_utils import parse_time_string
+
+        assert parse_time_string("") is None
+        assert parse_time_string(None) is None
+
+    def test_invalid_returns_none(self):
+        """Невалидный формат возвращает None."""
+        from app.utils.time_utils import parse_time_string
+
+        assert parse_time_string("abc") is None
+        assert parse_time_string("25:00") is None
+
+    def test_strips_extra_text(self):
+        """Убирает лишний текст."""
+        from app.utils.time_utils import parse_time_string
+        from datetime import time
+
+        result = parse_time_string("в 15 часов")
+        assert result == time(15, 0)
+
+
+class TestIsTimePassed:
+    """Тесты для is_time_passed."""
+
+    def test_time_passed(self):
+        """Время прошло."""
+        from unittest.mock import patch
+        from datetime import datetime, time
+        import pytz
+
+        fixed_time = datetime(2026, 1, 10, 15, 30, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            from app.utils.time_utils import is_time_passed
+            assert is_time_passed(time(14, 0)) is True
+            assert is_time_passed(time(15, 0)) is True
+
+    def test_time_not_passed(self):
+        """Время ещё не прошло."""
+        from unittest.mock import patch
+        from datetime import datetime, time
+        import pytz
+
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            from app.utils.time_utils import is_time_passed
+            assert is_time_passed(time(15, 0)) is False
+
+
+class TestCalculateDelayMinutes:
+    """Тесты для calculate_delay_minutes."""
+
+    def test_calculates_delay(self):
+        """Вычисляет опоздание."""
+        from app.utils.time_utils import calculate_delay_minutes
+
+        assert calculate_delay_minutes("12:00", "14:30") == 150
+        assert calculate_delay_minutes("12:00", "12:30") == 30
+
+    def test_no_delay_on_time(self):
+        """Нет опоздания если вовремя."""
+        from app.utils.time_utils import calculate_delay_minutes
+
+        assert calculate_delay_minutes("12:00", "12:00") == 0
+
+    def test_no_delay_if_early(self):
+        """Нет опоздания если раньше."""
+        from app.utils.time_utils import calculate_delay_minutes
+
+        assert calculate_delay_minutes("12:00", "11:30") == 0
+
+    def test_handles_seconds_format(self):
+        """Обрабатывает формат с секундами."""
+        from app.utils.time_utils import calculate_delay_minutes
+
+        assert calculate_delay_minutes("12:00:00", "14:30:00") == 150
+
+    def test_handles_invalid_input(self):
+        """Обрабатывает невалидный ввод."""
+        from app.utils.time_utils import calculate_delay_minutes
+
+        assert calculate_delay_minutes("invalid", "12:00") == 0
+        assert calculate_delay_minutes(None, "12:00") == 0
+
+
+class TestCalculateTimeRangeBefore:
+    """Тесты для calculate_time_range_before."""
+
+    def test_calculates_range(self):
+        """Вычисляет диапазон в будущем."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        fixed_time = datetime(2026, 1, 10, 11, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            from app.utils.time_utils import calculate_time_range_before
+            start, end = calculate_time_range_before(60)  # 60 минут вперёд
+            assert "11:55" <= start <= "12:00"
+            assert "12:00" <= end <= "12:05"
+
+
+class TestCalculateTimeRangeAfter:
+    """Тесты для calculate_time_range_after."""
+
+    def test_calculates_range(self):
+        """Вычисляет диапазон в прошлом."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        fixed_time = datetime(2026, 1, 10, 12, 30, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            from app.utils.time_utils import calculate_time_range_after
+            start, end = calculate_time_range_after(30)  # 30 минут назад
+            assert "11:55" <= start <= "12:00"
+            assert "12:00" <= end <= "12:05"
+
+
 class TestIsTooEarly:
     """Тесты для is_too_early."""
 
     def test_in_window_returns_false(self):
         """В окне приёма — можно отправлять."""
-        now = get_tashkent_now()
-        # intake_time = 5 минут назад (в окне)
-        minutes = now.hour * 60 + now.minute - 5
-        if minutes < 0:
-            minutes += 24 * 60
-        intake_time = f"{minutes // 60:02d}:{minutes % 60:02d}"
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
 
-        too_early, window_start = is_too_early(intake_time)
-        assert too_early is False
-        assert window_start == ""
+        # Фиксированное время: 12:00 Ташкент
+        fixed_time = datetime(2026, 1, 10, 12, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # intake_time = 12:05 (5 минут в будущем, но в окне 10 минут)
+            too_early, window_start = is_too_early("12:05")
+            assert too_early is False
+            assert window_start == ""
 
     def test_too_early_returns_true(self):
         """Слишком рано — нельзя отправлять."""
-        now = get_tashkent_now()
-        # intake_time = 30 минут в будущем (слишком рано)
-        minutes = now.hour * 60 + now.minute + 30
-        intake_time = f"{(minutes // 60) % 24:02d}:{minutes % 60:02d}"
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
 
-        too_early, window_start = is_too_early(intake_time)
-        assert too_early is True
-        assert window_start != ""
+        # Фиксированное время: 10:00 Ташкент
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # intake_time = 10:30 (30 минут в будущем)
+            too_early, window_start = is_too_early("10:30")
+            assert too_early is True
+            assert window_start == "10:20"
 
     def test_window_start_format(self):
         """window_start в формате HH:MM."""
-        now = get_tashkent_now()
-        minutes = now.hour * 60 + now.minute + 30
-        intake_time = f"{(minutes // 60) % 24:02d}:{minutes % 60:02d}"
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
 
-        _, window_start = is_too_early(intake_time)
-        assert ":" in window_start
-        assert len(window_start) == 5
+        # Фиксированное время: 10:00 Ташкент
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            _, window_start = is_too_early("10:30")
+            assert ":" in window_start
+            assert len(window_start) == 5

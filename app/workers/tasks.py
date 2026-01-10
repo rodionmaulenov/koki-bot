@@ -6,7 +6,6 @@ from app.services.dashboard import DashboardService
 from app.services.managers import ManagerService
 from app.services.topic import TopicService
 from app.config import get_settings
-from app.services.stats_messages import StatsMessagesService
 from app.services.users import UserService
 from app.workers.broker import broker, get_redis
 from app.workers.database import get_supabase
@@ -160,8 +159,8 @@ async def send_refusals():
     user_service = UserService(supabase)
     manager_service = ManagerService(supabase)
     intake_logs_service = IntakeLogsService(supabase)
-    dashboard_service = DashboardService(supabase, settings.manager_group_id)
-    topic_service = TopicService(bot, settings.manager_group_id)
+    dashboard_service = DashboardService(supabase, settings.kok_group_id)
+    topic_service = TopicService(bot, settings.kok_group_id)
 
     today = get_tashkent_now().date().isoformat()
     time_from, time_to = calculate_time_range_after(120)
@@ -261,7 +260,7 @@ async def send_refusals():
 
     # Обновляем дашборд если были отказы
     if any_refusal:
-        await dashboard_service.update_refusals(bot, settings.general_thread_id)
+        await dashboard_service.update_dashboard(bot, settings.general_thread_id)
 
 
 @broker.task(schedule=[{"cron": "0 3 * * *"}])  # 3:00 ночи каждый день
@@ -310,112 +309,18 @@ async def cleanup_expired_links():
 
 
 @broker.task(schedule=[{"cron": "* * * * *"}])
-async def refresh_active_dashboard():
-    """Обновляет дашборд активных курсов."""
+async def refresh_dashboard():
+    """Обновляет единый дашборд КОК."""
 
     settings = get_settings()
     supabase = await get_supabase()
 
     dashboard_service = DashboardService(
         supabase=supabase,
-        group_chat_id=settings.manager_group_id,
+        kok_group_id=settings.kok_group_id,
     )
-    stats_service = StatsMessagesService(supabase)
 
-    active_text = await dashboard_service.generate_active_courses()
-    await _update_or_create_dashboard(
-        stats_service=stats_service,
-        dashboard_type="active",
-        text=active_text,
-        chat_id=settings.manager_group_id,
+    await dashboard_service.update_dashboard(
+        bot=bot,
         thread_id=settings.general_thread_id,
     )
-
-
-@broker.task(schedule=[{"cron": "* * * * *"}])
-async def refresh_refusals_dashboard():
-    """Обновляет дашборд отказов."""
-
-    settings = get_settings()
-    supabase = await get_supabase()
-
-    dashboard_service = DashboardService(
-        supabase=supabase,
-        group_chat_id=settings.manager_group_id,
-    )
-    stats_service = StatsMessagesService(supabase)
-
-    refusals_text = await dashboard_service.generate_refusals(days=10)
-    await _update_or_create_dashboard(
-        stats_service=stats_service,
-        dashboard_type="refusals",
-        text=refusals_text,
-        chat_id=settings.manager_group_id,
-        thread_id=settings.general_thread_id,
-    )
-
-
-async def _update_or_create_dashboard(
-        stats_service: StatsMessagesService,
-        dashboard_type: str,
-        text: str,
-        chat_id: int,
-        thread_id: int,
-) -> None:
-    """Обновляет существующее сообщение или создаёт новое."""
-
-    existing = await stats_service.get_by_type(dashboard_type)
-
-    if existing and existing.get("message_id"):
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=existing["message_id"],
-                text=text,
-                parse_mode="HTML",
-            )
-            await stats_service.update_timestamp(dashboard_type)
-            print(f"📊 Dashboard '{dashboard_type}' updated")
-            return
-        except Exception as e:
-            error_msg = str(e).lower()
-
-            # Текст не изменился — это нормально
-            if "message is not modified" in error_msg:
-                print(f"📊 Dashboard '{dashboard_type}' unchanged")
-                return
-
-            # Сообщение удалено — создаём новое
-            if "message to edit not found" in error_msg:
-                print(f"⚠️ Message not found, recreating...")
-            else:
-                print(f"⚠️ Edit failed: {e}")
-                return
-
-    # Создаём новое сообщение
-    try:
-        message = await bot.send_message(
-            chat_id=chat_id,
-            message_thread_id=thread_id,
-            text=text,
-            parse_mode="HTML",
-        )
-
-        try:
-            await bot.pin_chat_message(
-                chat_id=chat_id,
-                message_id=message.message_id,
-                disable_notification=True
-            )
-        except Exception:
-            pass
-
-        await stats_service.upsert(
-            message_type=dashboard_type,
-            message_id=message.message_id,
-            chat_id=chat_id,
-            thread_id=thread_id,
-        )
-        print(f"📊 Dashboard '{dashboard_type}' created")
-    except Exception as e:
-        print(f"❌ Failed to create dashboard: {e}")

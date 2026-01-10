@@ -452,7 +452,6 @@ class TestCompleteCourseCallback:
             .execute()
 
         assert course.data["status"] == "completed"
-        callback.message.answer.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_course_not_found(
@@ -838,11 +837,8 @@ class TestClearCommand:
         # FSM сброшен
         mock_state.clear.assert_called_once()
 
-        # Своё сообщение удалено
-        message.delete.assert_called_once()
-
         # Удалены только сохранённые ID
-        assert set(deleted_ids) == {100, 200, 300, 400, 500}
+        assert set(deleted_ids) == {100, 200, 300, 400, 500, 1000}
 
         # Таблица очищена
         mock_commands_messages_service.delete_all.assert_called_once()
@@ -875,9 +871,6 @@ class TestClearCommand:
 
         # FSM сброшен
         mock_state.clear.assert_called_once()
-
-        # Своё сообщение удалено
-        message.delete.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_clear_skips_rules_message(

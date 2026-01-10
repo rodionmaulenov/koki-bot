@@ -3,7 +3,7 @@
 import logging
 import secrets
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 
@@ -19,13 +19,14 @@ settings = get_settings()
 
 
 # =============================================================================
-# /clear — очистить топик "Команды" (ПЕРВЫМ для перехвата FSM)
+# /clear — очистить топик "Команды" (работает в ЛЮБОМ состоянии FSM)
 # =============================================================================
 
 @router.message(
     Command("clear"),
-    F.chat.id == settings.manager_group_id,
+    F.chat.id == settings.commands_group_id,
     F.message_thread_id == settings.commands_thread_id,
+    StateFilter("*"),  # Перехватывает в любом состоянии
 )
 async def clear_command(message: Message, state: FSMContext, bot, commands_messages_service):
     """Удаляет сохранённые сообщения в топике, кроме правил."""
@@ -33,24 +34,27 @@ async def clear_command(message: Message, state: FSMContext, bot, commands_messa
     # Сбрасываем FSM (если был в процессе /add или /add_video)
     await state.clear()
 
-    # Удаляем сообщение с командой
-    try:
-        await message.delete()
-    except Exception:
-        pass
+    # ID правил (не удаляем)
+    rules_id = settings.rules_message_id
+    logger.info(f"🧹 /clear started, rules_message_id={rules_id}")
 
     # Получаем все сохранённые message_id
     message_ids = await commands_messages_service.get_all()
+    logger.info(f"📋 Found {len(message_ids)} messages in DB: {message_ids}")
 
-    if not message_ids:
-        return
+    # Добавляем message_id команды /clear (его тоже надо удалить)
+    clear_msg_id = message.message_id
+    if clear_msg_id not in message_ids:
+        message_ids.append(clear_msg_id)
 
-    # ID правил (не удаляем)
-    rules_id = settings.rules_message_id
+    deleted = 0
+    skipped = 0
 
     for msg_id in message_ids:
         # Пропускаем правила
         if rules_id and msg_id == rules_id:
+            logger.info(f"⏭️ Skipping rules message: {msg_id}")
+            skipped += 1
             continue
 
         try:
@@ -58,12 +62,15 @@ async def clear_command(message: Message, state: FSMContext, bot, commands_messa
                 chat_id=message.chat.id,
                 message_id=msg_id,
             )
-        except Exception:
+            deleted += 1
+            logger.debug(f"🗑️ Deleted message: {msg_id}")
+        except Exception as e:
             # Сообщение уже удалено или нет прав
-            pass
+            logger.debug(f"⚠️ Failed to delete {msg_id}: {e}")
 
     # Очищаем таблицу
     await commands_messages_service.delete_all()
+    logger.info(f"✅ /clear finished: deleted={deleted}, skipped={skipped}")
 
 
 # =============================================================================
@@ -72,7 +79,7 @@ async def clear_command(message: Message, state: FSMContext, bot, commands_messa
 
 @router.message(
     Command("add"),
-    F.chat.id == settings.manager_group_id,
+    F.chat.id == settings.commands_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
 async def add_command(message: Message, state: FSMContext, manager_service, commands_messages_service):
@@ -93,7 +100,7 @@ async def add_command(message: Message, state: FSMContext, manager_service, comm
 
 @router.message(
     AddGirlStates.waiting_for_name,
-    F.chat.id == settings.manager_group_id,
+    F.chat.id == settings.commands_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
 async def add_process_name(
@@ -168,7 +175,7 @@ async def add_process_name(
 
 @router.message(
     Command("add_video"),
-    F.chat.id == settings.manager_group_id,
+    F.chat.id == settings.commands_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
 async def add_video_command(message: Message, state: FSMContext, manager_service, commands_messages_service):
@@ -188,7 +195,7 @@ async def add_video_command(message: Message, state: FSMContext, manager_service
 
 @router.message(
     AddVideoStates.waiting_for_name,
-    F.chat.id == settings.manager_group_id,
+    F.chat.id == settings.commands_group_id,
     F.message_thread_id == settings.commands_thread_id,
 )
 async def add_video_process_name(
@@ -373,9 +380,9 @@ async def verify_no_callback(
 
     await callback.message.edit_text(templates.MANAGER_VIDEO_REJECTED.format(day=day, total_days=total_days))
 
-    # Обновляем дашборд отказов
-    dashboard_service = DashboardService(supabase, settings.manager_group_id)
-    await dashboard_service.update_refusals(bot, settings.general_thread_id)
+    # Обновляем дашборд
+    dashboard_service = DashboardService(supabase, settings.kok_group_id)
+    await dashboard_service.update_dashboard(bot, settings.general_thread_id)
 
 
 @router.callback_query(F.data.startswith("complete_"))

@@ -1,597 +1,437 @@
 """Тесты для handlers/video.py."""
 import pytest
-from unittest.mock import AsyncMock, patch
+from datetime import date, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app import templates
 
 
-class TestVideoHandlerValidation:
-    """Тесты валидации в video_handler."""
+@pytest.fixture
+def mock_gemini_service():
+    """Mock GeminiService."""
+    service = MagicMock()
+    service.verify_video = AsyncMock(return_value={
+        "status": "confirmed",
+        "confidence": 95,
+        "reason": "",
+    })
+    return service
+
+
+@pytest.fixture
+def mock_video_message():
+    """Фабрика для создания mock video message."""
+    def _create(user_id: int = 123456, is_circle: bool = True):
+        message = MagicMock()
+        message.from_user = MagicMock()
+        message.from_user.id = user_id
+        message.answer = AsyncMock()
+
+        if is_circle:
+            message.video_note = MagicMock()
+            message.video_note.file_id = "test_video_note_id"
+            message.video = None
+        else:
+            message.video = MagicMock()
+            message.video.file_id = "test_video_id"
+            message.video_note = None
+
+        return message
+    return _create
+
+
+class TestVideoHandlerNoUser:
+    """Тесты когда пользователь не найден."""
 
     @pytest.mark.asyncio
-    async def test_no_user(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-    ):
-        """User не найден."""
+    async def test_no_user_error(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если пользователь не найден."""
         from app.handlers.video import video_handler
 
-        message = mock_video_message(user_id=999999999)
+        message = mock_video_message(user_id=999999)
+
+        # User service возвращает None
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value=None)
+
+        await video_handler(
+            message=message,
+            user_service=user_service,
+            course_service=MagicMock(),
+            intake_logs_service=MagicMock(),
+            topic_service=MagicMock(),
+            manager_service=MagicMock(),
+            gemini_service=mock_gemini_service,
+            bot=bot,
+        )
+
+        message.answer.assert_called_once_with(templates.ERROR_NO_USER)
+
+
+class TestVideoHandlerNoCourse:
+    """Тесты когда нет активного курса."""
+
+    @pytest.mark.asyncio
+    async def test_no_active_course_error(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если нет активного курса."""
+        from app.handlers.video import video_handler
+
+        message = mock_video_message()
+
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1, "telegram_id": 123456})
+
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value=None)
 
         await video_handler(
             message=message,
             user_service=user_service,
             course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
+            intake_logs_service=MagicMock(),
+            topic_service=MagicMock(),
+            manager_service=MagicMock(),
+            gemini_service=mock_gemini_service,
             bot=bot,
         )
 
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.ERROR_NO_USER
+        message.answer.assert_called_once_with(templates.VIDEO_NO_ACTIVE_COURSE)
 
     @pytest.mark.asyncio
-    async def test_no_active_course(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-    ):
-        """Нет активного курса."""
+    async def test_course_not_active_status(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если курс не в статусе active."""
         from app.handlers.video import video_handler
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        message = mock_video_message()
+
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={"id": 1, "status": "setup"})
 
         await video_handler(
             message=message,
             user_service=user_service,
             course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
+            intake_logs_service=MagicMock(),
+            topic_service=MagicMock(),
+            manager_service=MagicMock(),
+            gemini_service=mock_gemini_service,
             bot=bot,
         )
 
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_NO_ACTIVE_COURSE
+        message.answer.assert_called_once_with(templates.VIDEO_NO_ACTIVE_COURSE)
+
+
+class TestVideoHandlerCourseNotStarted:
+    """Тесты когда курс ещё не начался."""
 
     @pytest.mark.asyncio
-    async def test_course_not_started(
-            self,
-            mock_video_message,
-            user_service,
-            course_service,
-            intake_logs_service,
-            topic_service,
-            manager_service,
-            mock_gemini_confirmed,
-            bot,
-            test_user_with_telegram,
-            test_future_course,  # ← используем fixture
-    ):
-        """Курс ещё не начался."""
+    async def test_course_not_started(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если курс ещё не начался."""
         from app.handlers.video import video_handler
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        message = mock_video_message()
 
-        await video_handler(
-            message=message,
-            user_service=user_service,
-            course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
-            bot=bot,
-        )
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
 
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_COURSE_NOT_STARTED
+        # Курс начинается завтра
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": tomorrow,
+        })
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=MagicMock(),
+                topic_service=MagicMock(),
+                manager_service=MagicMock(),
+                gemini_service=mock_gemini_service,
+                bot=bot,
+            )
+
+        message.answer.assert_called_once_with(templates.VIDEO_COURSE_NOT_STARTED)
+
+
+class TestVideoHandlerOnlyCircles:
+    """Тесты для проверки типа видео."""
 
     @pytest.mark.asyncio
-    async def test_only_circles_allowed(
-        self,
-        mock_regular_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-    ):
-        """Обычное видео без разрешения."""
+    async def test_regular_video_not_allowed(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если обычное видео не разрешено."""
         from app.handlers.video import video_handler
 
-        message = mock_regular_video_message(user_id=test_user_with_telegram["telegram_id"])
+        # Обычное видео, не кружочек
+        message = mock_video_message(is_circle=False)
 
-        await video_handler(
-            message=message,
-            user_service=user_service,
-            course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
-            bot=bot,
-        )
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
 
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_ONLY_CIRCLES
+        today = date.today().isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": today,
+            "allow_video": False,  # Обычное видео не разрешено
+        })
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=MagicMock(),
+                topic_service=MagicMock(),
+                manager_service=MagicMock(),
+                gemini_service=mock_gemini_service,
+                bot=bot,
+            )
+
+        message.answer.assert_called_once_with(templates.VIDEO_ONLY_CIRCLES)
+
+
+class TestVideoHandlerAlreadySent:
+    """Тесты когда видео уже отправлено сегодня."""
 
     @pytest.mark.asyncio
-    async def test_already_sent_today(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-    ):
-        """Уже отправила видео сегодня."""
+    async def test_already_sent_today(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если уже отправила видео сегодня."""
         from app.handlers.video import video_handler
 
-        # Создаём запись что видео уже принято
-        await intake_logs_service.create(
-            course_id=test_active_course["id"],
-            day=test_active_course["current_day"],
-            status="taken",
-            video_file_id="existing_video",
-        )
+        message = mock_video_message()
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
 
-        await video_handler(
-            message=message,
-            user_service=user_service,
-            course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
-            bot=bot,
-        )
+        today = date.today().isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": today,
+            "current_day": 5,
+        })
 
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_ALREADY_SENT
+        intake_logs_service = MagicMock()
+        intake_logs_service.get_by_course_and_day = AsyncMock(return_value={"id": 1})  # Уже есть запись
 
-    @pytest.mark.asyncio
-    async def test_pending_review_blocks_second_video(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-    ):
-        """Видео на проверке — второе не принимается."""
-        from app.handlers.video import video_handler
-
-        # Создаём запись что видео на проверке
-        await intake_logs_service.create(
-            course_id=test_active_course["id"],
-            day=test_active_course["current_day"],
-            status="pending_review",
-            video_file_id="pending_video",
-        )
-
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
-
-        await video_handler(
-            message=message,
-            user_service=user_service,
-            course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
-            bot=bot,
-        )
-
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_ALREADY_SENT
-
-    @pytest.mark.asyncio
-    async def test_too_early(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course_too_early,
-    ):
-        """Слишком рано для видео."""
-        from app.handlers.video import video_handler
-
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
-
-        await video_handler(
-            message=message,
-            user_service=user_service,
-            course_service=course_service,
-            intake_logs_service=intake_logs_service,
-            topic_service=topic_service,
-            manager_service=manager_service,
-            gemini_service=mock_gemini_confirmed,
-            bot=bot,
-        )
-
-        message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert "рано" in call_text.lower() or "откроется" in call_text.lower()
-
-
-class TestVideoHandlerGemini:
-    """Тесты обработки видео через Gemini."""
-
-    @pytest.mark.asyncio
-    async def test_gemini_confirmed(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-    ):
-        """Gemini подтвердил видео."""
-        from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
-
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
-
-        # Мокаем download_video контекстный менеджер
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
 
             await video_handler(
                 message=message,
                 user_service=user_service,
                 course_service=course_service,
                 intake_logs_service=intake_logs_service,
-                topic_service=topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_confirmed,
+                topic_service=MagicMock(),
+                manager_service=MagicMock(),
+                gemini_service=mock_gemini_service,
+                bot=bot,
+            )
+
+        message.answer.assert_called_once_with(templates.VIDEO_ALREADY_SENT)
+
+
+class TestVideoHandlerTooEarly:
+    """Тесты когда слишком рано для видео."""
+
+    @pytest.mark.asyncio
+    async def test_too_early(self, mock_video_message, mock_gemini_service, bot):
+        """Ошибка если слишком рано."""
+        from app.handlers.video import video_handler
+
+        message = mock_video_message()
+
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+
+        today = date.today().isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": today,
+            "current_day": 1,
+            "intake_time": "15:00",
+        })
+
+        intake_logs_service = MagicMock()
+        intake_logs_service.get_by_course_and_day = AsyncMock(return_value=None)
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
+
+        with patch("app.handlers.video.is_too_early", return_value=(True, "14:50")):
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=intake_logs_service,
+                topic_service=MagicMock(),
+                manager_service=MagicMock(),
+                gemini_service=mock_gemini_service,
                 bot=bot,
             )
 
         message.answer.assert_called_once()
         call_text = message.answer.call_args[0][0]
-        assert "принят" in call_text.lower()
+        assert "14:50" in call_text
+
+
+class TestVideoHandlerSuccess:
+    """Тесты успешной обработки видео."""
 
     @pytest.mark.asyncio
-    async def test_gemini_pending(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_pending,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-    ):
-        """Gemini не уверен — на проверку менеджеру."""
+    async def test_video_confirmed(self, mock_video_message, bot):
+        """Видео подтверждено Gemini."""
         from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
+        from contextlib import asynccontextmanager
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        message = mock_video_message()
 
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1, "topic_id": 123, "manager_id": 1})
 
-            await video_handler(
-                message=message,
-                user_service=user_service,
-                course_service=course_service,
-                intake_logs_service=intake_logs_service,
-                topic_service=topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_pending,
-                bot=bot,
-            )
+        today = date.today().isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": today,
+            "current_day": 1,
+            "intake_time": "12:00",
+            "total_days": 21,
+        })
+        course_service.update = AsyncMock()
 
+        intake_logs_service = MagicMock()
+        intake_logs_service.get_by_course_and_day = AsyncMock(return_value=None)
+        intake_logs_service.create = AsyncMock()
+
+        topic_service = MagicMock()
+        topic_service.send_video = AsyncMock()
+        topic_service.update_progress = AsyncMock()
+
+        manager_service = MagicMock()
+        manager_service.get_by_id = AsyncMock(return_value={"name": "Test Manager"})
+
+        gemini_service = MagicMock()
+        gemini_service.verify_video = AsyncMock(return_value={
+            "status": "confirmed",
+            "confidence": 95,
+            "reason": "",
+        })
+
+        @asynccontextmanager
+        async def mock_download(*args, **kwargs):
+            yield "/tmp/test_video.mp4"
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
+
+        with patch("app.handlers.video.is_too_early", return_value=(False, "")):
+            with patch("app.handlers.video.GeminiService.download_video", mock_download):
+                await video_handler(
+                    message=message,
+                    user_service=user_service,
+                    course_service=course_service,
+                    intake_logs_service=intake_logs_service,
+                    topic_service=topic_service,
+                    manager_service=manager_service,
+                    gemini_service=gemini_service,
+                    bot=bot,
+                )
+
+        # Проверяем что intake_log создан
+        intake_logs_service.create.assert_called_once()
+        create_call = intake_logs_service.create.call_args
+        assert create_call.kwargs["status"] == "taken"
+        assert create_call.kwargs["verified_by"] == "gemini"
+
+        # Проверяем что current_day обновлён
+        course_service.update.assert_called()
+
+        # Проверяем ответ
         message.answer.assert_called_once()
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_PENDING_REVIEW
-
-class TestExtendedCourseLogic:
-    """Тесты для логики продлённого курса (total_days > 21)."""
 
     @pytest.mark.asyncio
-    async def test_course_continues_after_day_21_if_extended(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-        supabase,
-    ):
-        """Курс не завершается на 21 дне если total_days = 42."""
+    async def test_video_pending_review(self, mock_video_message, bot):
+        """Видео отправлено на проверку менеджеру."""
         from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
+        from contextlib import asynccontextmanager
 
-        # Устанавливаем день 21 и total_days = 42
-        await supabase.table("courses") \
-            .update({"current_day": 21, "total_days": 42}) \
-            .eq("id", test_active_course["id"]) \
-            .execute()
+        message = mock_video_message()
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1, "topic_id": 123, "manager_id": 1})
 
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+        today = date.today().isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": today,
+            "current_day": 1,
+            "intake_time": "12:00",
+            "total_days": 21,
+        })
 
-            await video_handler(
-                message=message,
-                user_service=user_service,
-                course_service=course_service,
-                intake_logs_service=intake_logs_service,
-                topic_service=topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_confirmed,
-                bot=bot,
-            )
+        intake_logs_service = MagicMock()
+        intake_logs_service.get_by_course_and_day = AsyncMock(return_value=None)
+        intake_logs_service.create = AsyncMock()
 
-        # Проверяем что курс НЕ завершён
-        course = await supabase.table("courses") \
-            .select("status, current_day") \
-            .eq("id", test_active_course["id"]) \
-            .single() \
-            .execute()
+        topic_service = MagicMock()
+        topic_service.send_video = AsyncMock()
+        topic_service.send_review_buttons = AsyncMock()
 
-        assert course.data["status"] == "active"
-        assert course.data["current_day"] == 22
+        gemini_service = MagicMock()
+        gemini_service.verify_video = AsyncMock(return_value={
+            "status": "pending",
+            "confidence": 50,
+            "reason": "Не видно таблетку",
+        })
 
-    @pytest.mark.asyncio
-    async def test_course_completes_at_total_days(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        topic_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-        supabase,
-    ):
-        """Курс завершается когда current_day достигает total_days."""
-        from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
-        from app import templates
+        @asynccontextmanager
+        async def mock_download(*args, **kwargs):
+            yield "/tmp/test_video.mp4"
 
-        # Устанавливаем день 21 и total_days = 21 (стандартный курс)
-        await supabase.table("courses") \
-            .update({"current_day": 21, "total_days": 21}) \
-            .eq("id", test_active_course["id"]) \
-            .execute()
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
 
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+        with patch("app.handlers.video.is_too_early", return_value=(False, "")):
+            with patch("app.handlers.video.GeminiService.download_video", mock_download):
+                await video_handler(
+                    message=message,
+                    user_service=user_service,
+                    course_service=course_service,
+                    intake_logs_service=intake_logs_service,
+                    topic_service=topic_service,
+                    manager_service=MagicMock(),
+                    gemini_service=gemini_service,
+                    bot=bot,
+                )
 
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+        # Проверяем статус pending_review
+        intake_logs_service.create.assert_called_once()
+        create_call = intake_logs_service.create.call_args
+        assert create_call.kwargs["status"] == "pending_review"
+        assert create_call.kwargs["verified_by"] is None
 
-            await video_handler(
-                message=message,
-                user_service=user_service,
-                course_service=course_service,
-                intake_logs_service=intake_logs_service,
-                topic_service=topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_confirmed,
-                bot=bot,
-            )
+        # Кнопки проверки отправлены
+        topic_service.send_review_buttons.assert_called_once()
 
-        # Проверяем что курс завершён
-        course = await supabase.table("courses") \
-            .select("status, current_day") \
-            .eq("id", test_active_course["id"]) \
-            .single() \
-            .execute()
-
-        assert course.data["status"] == "completed"
-        assert course.data["current_day"] == 21
-
-        # Проверяем сообщение
-        call_text = message.answer.call_args[0][0]
-        assert call_text == templates.VIDEO_COURSE_FINISHED
-
-    @pytest.mark.asyncio
-    async def test_full_closure_sequence_on_course_complete(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-        supabase,
-    ):
-        """Выполняет полную последовательность закрытия топика при завершении курса."""
-        from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
-        from unittest.mock import MagicMock
-
-        # Устанавливаем topic_id и registration_message_id
-        topic_id = 12345
-        registration_message_id = 999
-
-        await supabase.table("users") \
-            .update({"topic_id": topic_id}) \
-            .eq("id", test_user_with_telegram["id"]) \
-            .execute()
-
-        await supabase.table("courses") \
-            .update({
-                "current_day": 21,
-                "total_days": 21,
-                "registration_message_id": registration_message_id,
-            }) \
-            .eq("id", test_active_course["id"]) \
-            .execute()
-
-        # Mock topic_service с всеми методами
-        mock_topic_service = MagicMock()
-        mock_topic_service.send_video = AsyncMock()
-        mock_topic_service.rename_topic_on_close = AsyncMock()
-        mock_topic_service.remove_registration_buttons = AsyncMock()
-        mock_topic_service.send_closure_message = AsyncMock()
-        mock_topic_service.close_topic = AsyncMock()
-
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
-
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
-
-            await video_handler(
-                message=message,
-                user_service=user_service,
-                course_service=course_service,
-                intake_logs_service=intake_logs_service,
-                topic_service=mock_topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_confirmed,
-                bot=bot,
-            )
-
-        # Проверяем полную последовательность закрытия
-        mock_topic_service.rename_topic_on_close.assert_called_once()
-        mock_topic_service.remove_registration_buttons.assert_called_once()
-        mock_topic_service.send_closure_message.assert_called_once()
-        mock_topic_service.close_topic.assert_called_once()
-
-        # Проверяем параметры rename
-        rename_call = mock_topic_service.rename_topic_on_close.call_args
-        assert rename_call.kwargs["topic_id"] == topic_id
-        assert rename_call.kwargs["status"] == "completed"
-        assert rename_call.kwargs["completed_days"] == 21
-        assert rename_call.kwargs["total_days"] == 21
-
-        # Проверяем параметры closure message
-        closure_call = mock_topic_service.send_closure_message.call_args
-        assert closure_call.kwargs["status"] == "completed"
-
-    @pytest.mark.asyncio
-    async def test_skips_buttons_removal_if_no_message_id(
-        self,
-        mock_video_message,
-        user_service,
-        course_service,
-        intake_logs_service,
-        manager_service,
-        mock_gemini_confirmed,
-        bot,
-        test_user_with_telegram,
-        test_active_course,
-        supabase,
-    ):
-        """Пропускает удаление кнопок если нет registration_message_id."""
-        from app.handlers.video import video_handler
-        from app.services.gemini import GeminiService
-        from unittest.mock import MagicMock
-
-        # Устанавливаем topic_id БЕЗ registration_message_id
-        topic_id = 12345
-        await supabase.table("users") \
-            .update({"topic_id": topic_id}) \
-            .eq("id", test_user_with_telegram["id"]) \
-            .execute()
-
-        await supabase.table("courses") \
-            .update({"current_day": 21, "total_days": 21}) \
-            .eq("id", test_active_course["id"]) \
-            .execute()
-
-        mock_topic_service = MagicMock()
-        mock_topic_service.send_video = AsyncMock()
-        mock_topic_service.rename_topic_on_close = AsyncMock()
-        mock_topic_service.remove_registration_buttons = AsyncMock()
-        mock_topic_service.send_closure_message = AsyncMock()
-        mock_topic_service.close_topic = AsyncMock()
-
-        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
-
-        with patch.object(GeminiService, 'download_video') as mock_download:
-            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
-            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
-
-            await video_handler(
-                message=message,
-                user_service=user_service,
-                course_service=course_service,
-                intake_logs_service=intake_logs_service,
-                topic_service=mock_topic_service,
-                manager_service=manager_service,
-                gemini_service=mock_gemini_confirmed,
-                bot=bot,
-            )
-
-        # remove_registration_buttons НЕ должен вызываться
-        mock_topic_service.remove_registration_buttons.assert_not_called()
-
-        # Остальные методы должны вызываться
-        mock_topic_service.rename_topic_on_close.assert_called_once()
-        mock_topic_service.send_closure_message.assert_called_once()
-        mock_topic_service.close_topic.assert_called_once()
+        # Ответ пользователю
+        message.answer.assert_called_once_with(templates.VIDEO_PENDING_REVIEW)

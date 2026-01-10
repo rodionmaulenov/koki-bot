@@ -1,187 +1,429 @@
-"""Личные сообщения от девушек."""
+"""Тесты для handlers/private.py."""
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import timedelta
 
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
-from aiogram.filters import CommandStart, CommandObject
-
-from app.keyboards import cycle_day_keyboard, time_keyboard_today, time_keyboard, understand_button
-from app.utils.time_utils import get_tashkent_now, format_date
 from app import templates
-
-router = Router()
-
-router.message.filter(F.chat.type == "private")
+from app.utils.time_utils import get_tashkent_now
 
 
-@router.message(CommandStart(deep_link=True))
-async def start_with_link(
-        message: Message,
-        command: CommandObject,
-        course_service,
-        user_service,
-):
-    invite_code = command.args
+class TestUnderstandCallback:
+    """Тесты для understand_callback."""
 
-    course = await course_service.get_by_invite_code(invite_code)
+    @pytest.mark.asyncio
+    async def test_expired_course_created_yesterday(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """Курс создан вчера — показать expired."""
+        from app.handlers.private import understand_callback
 
-    if not course:
-        await message.answer(templates.LINK_INVALID)
-        return
+        yesterday = (get_tashkent_now() - timedelta(days=1)).isoformat()
 
-    if course.get("invite_used"):
-        await message.answer(templates.LINK_USED)
-        return
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": yesterday,
+            "status": "setup",
+        })
+        mock_course_service.set_expired = AsyncMock()
 
-    await user_service.set_telegram_id(
-        user_id=course["user_id"],
-        telegram_id=message.from_user.id,
-    )
+        callback = mock_callback(data="understand")
 
-    await course_service.mark_invite_used(course["id"])
-
-    user = await user_service.get_by_id(course["user_id"])
-    girl_name = user.get("name", "")
-
-    await message.answer(
-        templates.WELCOME.format(girl_name=girl_name),
-        reply_markup=understand_button(),
-    )
-
-
-@router.callback_query(F.data == "understand")
-async def understand_callback(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.delete()
-    await callback.message.answer(
-        templates.SELECT_CYCLE_DAY,
-        reply_markup=cycle_day_keyboard(),
-    )
-
-@router.callback_query(F.data.startswith("cycle_"))
-async def cycle_day_callback(
-        callback: CallbackQuery,
-        course_service,
-        user_service,
-):
-    await callback.answer()
-
-    cycle_day = int(callback.data.split("_")[1])
-
-    user = await user_service.get_by_telegram_id(callback.from_user.id)
-    if not user:
-        await callback.message.edit_text(templates.ERROR_NO_USER)
-        return
-
-    course = await course_service.get_active_by_user_id(user["id"])
-    if not course:
-        await callback.message.edit_text(templates.ERROR_NO_COURSE)
-        return
-
-    now = get_tashkent_now()
-
-    if cycle_day == 4:
-        start_date = now.date()
-        keyboard = time_keyboard_today()
-
-        if keyboard is None:
-            await callback.message.edit_text(
-                templates.TOO_LATE_TODAY,
-                reply_markup=cycle_day_keyboard(),
-            )
-            return
-
-        text = templates.CYCLE_DAY_TODAY.format(cycle_day=cycle_day)
-    else:
-        start_date = (now + timedelta(days=1)).date()
-        keyboard = time_keyboard()
-        text = templates.CYCLE_DAY_TOMORROW.format(cycle_day=cycle_day)
-
-    await course_service.update(
-        course_id=course["id"],
-        cycle_day=cycle_day,
-        start_date=start_date.isoformat(),
-    )
-
-    await callback.message.edit_text(text, reply_markup=keyboard)
-
-
-@router.callback_query(F.data.startswith("time_"))
-async def time_callback(
-        callback: CallbackQuery,
-        course_service,
-        user_service,
-        manager_service,
-        topic_service,
-):
-    await callback.answer()
-
-    parts = callback.data.split("_")
-    hour = int(parts[1])
-    minute = int(parts[2])
-    intake_time = f"{hour:02d}:{minute:02d}"
-
-    user = await user_service.get_by_telegram_id(callback.from_user.id)
-    if not user:
-        await callback.message.edit_text(templates.ERROR_NO_USER)
-        return
-
-    course = await course_service.get_active_by_user_id(user["id"])
-    if not course:
-        await callback.message.edit_text(templates.ERROR_NO_COURSE)
-        return
-
-    await course_service.update(
-        course_id=course["id"],
-        intake_time=intake_time,
-        status="active",
-        current_day=1,
-    )
-
-    manager = await manager_service.get_by_id(user["manager_id"])
-    manager_name = manager.get("name", "") if manager else ""
-
-    topic_id = await topic_service.create_topic(
-        girl_name=user.get("name", ""),
-        manager_name=manager_name,
-    )
-
-    start_date = format_date(course.get("start_date", ""))
-
-    if topic_id:
-        await user_service.set_topic_id(user["id"], topic_id)
-
-        await topic_service.send_registration_info(
-            topic_id=topic_id,
-            course_id=course["id"],
-            cycle_day=course.get("cycle_day", 1),
-            intake_time=intake_time,
-            start_date=start_date,
+        await understand_callback(
+            callback=callback,
+            user_service=mock_user_service,
+            course_service=mock_course_service,
         )
 
-    text = templates.REGISTRATION_COMPLETE.format(
-        start_date=start_date,
-        intake_time=intake_time,
-    )
+        mock_course_service.set_expired.assert_called_once_with(1)
+        callback.message.edit_text.assert_called_once_with(
+            templates.TOO_LATE_REGISTRATION_EXPIRED
+        )
 
-    await callback.message.edit_text(text)
+    @pytest.mark.asyncio
+    async def test_course_created_today_proceeds(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """Курс создан сегодня — продолжить регистрацию."""
+        from app.handlers.private import understand_callback
+
+        today = get_tashkent_now().isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": today,
+            "status": "setup",
+        })
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="understand")
+
+        await understand_callback(
+            callback=callback,
+            user_service=mock_user_service,
+            course_service=mock_course_service,
+        )
+
+        callback.message.delete.assert_called_once()
+        callback.message.answer.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_user_error(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """Пользователь не найден."""
+        from app.handlers.private import understand_callback
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value=None)
+
+        callback = mock_callback(data="understand")
+
+        await understand_callback(
+            callback=callback,
+            user_service=mock_user_service,
+            course_service=mock_course_service,
+        )
+
+        callback.message.edit_text.assert_called_once_with(templates.ERROR_NO_USER)
 
 
-@router.message(CommandStart())
-async def start_without_link(message: Message, user_service, course_service):
-    user = await user_service.get_by_telegram_id(message.from_user.id)
+class TestCycleDayCallback:
+    """Тесты для cycle_day_callback."""
 
-    if user:
-        course = await course_service.get_active_by_user_id(user["id"])
-        if course and course.get("status") == "active":
-            await message.answer(
-                templates.ALREADY_ON_COURSE.format(
-                    girl_name=user.get("name", ""),
-                    current_day=course.get("current_day", 1),
-                    total_days=course.get("total_days") or 21,
-                    intake_time=course.get("intake_time", "—"),
-                )
+    @pytest.mark.asyncio
+    async def test_expired_course_created_yesterday(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """Курс создан вчера — показать expired."""
+        from app.handlers.private import cycle_day_callback
+
+        yesterday = (get_tashkent_now() - timedelta(days=1)).isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": yesterday,
+            "status": "setup",
+        })
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="cycle_4")
+
+        await cycle_day_callback(
+            callback=callback,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+        )
+
+        mock_course_service.set_expired.assert_called_once_with(1)
+        callback.message.edit_text.assert_called_once_with(
+            templates.TOO_LATE_REGISTRATION_EXPIRED
+        )
+
+    @pytest.mark.asyncio
+    async def test_day4_too_late_no_time_slots(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """День 4, нет доступных слотов времени."""
+        from app.handlers.private import cycle_day_callback
+
+        today = get_tashkent_now().isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": today,
+            "status": "setup",
+        })
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="cycle_4")
+
+        # Мокаем time_keyboard_today чтобы вернул None
+        with patch("app.handlers.private.time_keyboard_today", return_value=None):
+            await cycle_day_callback(
+                callback=callback,
+                course_service=mock_course_service,
+                user_service=mock_user_service,
             )
-            return
 
-    await message.answer(templates.ASK_MANAGER_FOR_LINK)
+        callback.message.edit_text.assert_called_once_with(templates.TOO_LATE_TODAY)
+
+    @pytest.mark.asyncio
+    async def test_day4_with_available_time_slots(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """День 4, есть доступные слоты времени."""
+        from app.handlers.private import cycle_day_callback
+
+        today = get_tashkent_now().isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": today,
+            "status": "setup",
+        })
+        mock_course_service.update = AsyncMock()
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="cycle_4")
+
+        mock_keyboard = MagicMock()
+        with patch("app.handlers.private.time_keyboard_today", return_value=mock_keyboard):
+            await cycle_day_callback(
+                callback=callback,
+                course_service=mock_course_service,
+                user_service=mock_user_service,
+            )
+
+        mock_course_service.update.assert_called_once()
+        callback.message.edit_text.assert_called_once()
+        # Проверяем что клавиатура передана
+        call_kwargs = callback.message.edit_text.call_args[1]
+        assert call_kwargs["reply_markup"] == mock_keyboard
+
+    @pytest.mark.asyncio
+    async def test_day1_tomorrow_start(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+    ):
+        """День 1-3 — начало завтра."""
+        from app.handlers.private import cycle_day_callback
+
+        today = get_tashkent_now().isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": today,
+            "status": "setup",
+        })
+        mock_course_service.update = AsyncMock()
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="cycle_1")
+
+        mock_keyboard = MagicMock()
+        with patch("app.handlers.private.time_keyboard", return_value=mock_keyboard):
+            await cycle_day_callback(
+                callback=callback,
+                course_service=mock_course_service,
+                user_service=mock_user_service,
+            )
+
+        mock_course_service.update.assert_called_once()
+        # Проверяем что cycle_day=1 передан
+        call_kwargs = mock_course_service.update.call_args[1]
+        assert call_kwargs["cycle_day"] == 1
+
+
+class TestTimeCallback:
+    """Тесты для time_callback."""
+
+    @pytest.mark.asyncio
+    async def test_expired_course_created_yesterday(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+        mock_manager_service,
+        mock_topic_service,
+    ):
+        """Курс создан вчера — показать expired."""
+        from app.handlers.private import time_callback
+
+        yesterday = (get_tashkent_now() - timedelta(days=1)).isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": yesterday,
+            "status": "setup",
+        })
+        mock_course_service.set_expired = AsyncMock()
+
+        callback = mock_callback(data="time_12_00")
+
+        await time_callback(
+            callback=callback,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+            manager_service=mock_manager_service,
+            topic_service=mock_topic_service,
+        )
+
+        mock_course_service.set_expired.assert_called_once_with(1)
+        callback.message.edit_text.assert_called_once_with(
+            templates.TOO_LATE_REGISTRATION_EXPIRED
+        )
+
+    @pytest.mark.asyncio
+    async def test_successful_registration(
+        self,
+        mock_callback,
+        mock_user_service,
+        mock_course_service,
+        mock_manager_service,
+        mock_topic_service,
+    ):
+        """Успешная регистрация."""
+        from app.handlers.private import time_callback
+
+        today = get_tashkent_now().isoformat()
+
+        mock_user_service.get_by_telegram_id = AsyncMock(return_value={
+            "id": 1,
+            "name": "Тестова Мария",
+            "manager_id": 1,
+        })
+        mock_course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "created_at": today,
+            "status": "setup",
+            "start_date": "2026-01-15",
+            "cycle_day": 1,
+        })
+        mock_course_service.update = AsyncMock()
+        mock_course_service.set_expired = AsyncMock()
+        mock_manager_service.get_by_id = AsyncMock(return_value={"name": "Manager"})
+        mock_topic_service.create_topic = AsyncMock(return_value=123)
+        mock_topic_service.send_registration_info = AsyncMock(return_value=456)
+        mock_user_service.set_topic_id = AsyncMock()
+
+        callback = mock_callback(data="time_14_30")
+
+        await time_callback(
+            callback=callback,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+            manager_service=mock_manager_service,
+            topic_service=mock_topic_service,
+        )
+
+        # Проверяем что курс обновлён
+        mock_course_service.update.assert_called()
+        first_call = mock_course_service.update.call_args_list[0]
+        assert first_call[1]["intake_time"] == "14:30"
+        assert first_call[1]["status"] == "active"
+
+        # Проверяем что топик создан
+        mock_topic_service.create_topic.assert_called_once()
+
+        # Проверяем что сообщение отправлено
+        callback.message.edit_text.assert_called_once()
+        call_args = callback.message.edit_text.call_args[0][0]
+        assert "14:30" in call_args
+
+
+class TestStartWithLink:
+    """Тесты для start_with_link."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_link(
+        self,
+        mock_message,
+        mock_course_service,
+        mock_user_service,
+    ):
+        """Невалидная ссылка."""
+        from app.handlers.private import start_with_link
+
+        mock_course_service.get_by_invite_code = AsyncMock(return_value=None)
+
+        message = mock_message(text="/start abc123")
+        command = MagicMock()
+        command.args = "abc123"
+
+        await start_with_link(
+            message=message,
+            command=command,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+        )
+
+        message.answer.assert_called_once_with(templates.LINK_INVALID)
+
+    @pytest.mark.asyncio
+    async def test_link_already_used(
+        self,
+        mock_message,
+        mock_course_service,
+        mock_user_service,
+    ):
+        """Ссылка уже использована."""
+        from app.handlers.private import start_with_link
+
+        mock_course_service.get_by_invite_code = AsyncMock(return_value={
+            "id": 1,
+            "invite_used": True,
+        })
+
+        message = mock_message(text="/start abc123")
+        command = MagicMock()
+        command.args = "abc123"
+
+        await start_with_link(
+            message=message,
+            command=command,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+        )
+
+        message.answer.assert_called_once_with(templates.LINK_USED)
+
+    @pytest.mark.asyncio
+    async def test_valid_link_welcome(
+        self,
+        mock_message,
+        mock_course_service,
+        mock_user_service,
+    ):
+        """Валидная ссылка — показать приветствие."""
+        from app.handlers.private import start_with_link
+
+        mock_course_service.get_by_invite_code = AsyncMock(return_value={
+            "id": 1,
+            "user_id": 1,
+            "invite_used": False,
+        })
+        mock_course_service.mark_invite_used = AsyncMock()
+        mock_user_service.set_telegram_id = AsyncMock()
+        mock_user_service.get_by_id = AsyncMock(return_value={"name": "Тестова Мария"})
+
+        message = mock_message(text="/start abc123")
+        command = MagicMock()
+        command.args = "abc123"
+
+        await start_with_link(
+            message=message,
+            command=command,
+            course_service=mock_course_service,
+            user_service=mock_user_service,
+        )
+
+        mock_course_service.mark_invite_used.assert_called_once_with(1)
+        message.answer.assert_called_once()
+        call_args = message.answer.call_args[0][0]
+        assert "Тестова Мария" in call_args

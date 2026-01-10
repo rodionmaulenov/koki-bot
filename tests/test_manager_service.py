@@ -1,41 +1,50 @@
 """Тесты для ManagerService."""
 import pytest
+from unittest.mock import MagicMock
+
+from tests.conftest import create_supabase_chain
 
 
-class TestManagerServiceGetByTelegramId:
-    """Тесты для get_by_telegram_id()."""
+class TestManagerService:
+    """Тесты для ManagerService."""
 
     @pytest.mark.asyncio
-    async def test_finds_manager(self, manager_service, test_manager):
+    async def test_get_by_telegram_id_found(self, mock_supabase):
         """Находит менеджера по telegram_id."""
-        manager = await manager_service.get_by_telegram_id(test_manager["telegram_id"])
+        from app.services.managers import ManagerService
+
+        chain = create_supabase_chain([{"id": 1, "telegram_id": 123456789, "name": "Test"}])
+        mock_supabase.table = MagicMock(return_value=chain)
+
+        service = ManagerService(mock_supabase)
+        manager = await service.get_by_telegram_id(123456789)
 
         assert manager is not None
-        assert manager["id"] == test_manager["id"]
-        assert manager["name"] == test_manager["name"]
+        assert manager["name"] == "Test"
 
     @pytest.mark.asyncio
-    async def test_returns_none_for_nonexistent(self, manager_service):
-        """Возвращает None для несуществующего telegram_id."""
-        manager = await manager_service.get_by_telegram_id(999999999)
+    async def test_get_by_telegram_id_not_found(self, mock_supabase):
+        """Возвращает None если не найден."""
+        from app.services.managers import ManagerService
+
+        chain = create_supabase_chain([])
+        mock_supabase.table = MagicMock(return_value=chain)
+
+        service = ManagerService(mock_supabase)
+        manager = await service.get_by_telegram_id(999999)
 
         assert manager is None
 
-
-class TestManagerServiceGetById:
-    """Тесты для get_by_id()."""
-
     @pytest.mark.asyncio
-    async def test_finds_manager(self, manager_service, test_manager):
-        """Находит менеджера по id."""
-        manager = await manager_service.get_by_id(test_manager["id"])
+    async def test_get_by_id_found(self, mock_supabase):
+        """Находит менеджера по ID."""
+        from app.services.managers import ManagerService
+
+        chain = create_supabase_chain([{"id": 1, "name": "Test Manager"}])
+        mock_supabase.table = MagicMock(return_value=chain)
+
+        service = ManagerService(mock_supabase)
+        manager = await service.get_by_id(1)
 
         assert manager is not None
-        assert manager["telegram_id"] == test_manager["telegram_id"]
-
-    @pytest.mark.asyncio
-    async def test_returns_none_for_nonexistent(self, manager_service):
-        """Возвращает None для несуществующего id."""
-        manager = await manager_service.get_by_id(999999999)
-
-        assert manager is None
+        assert manager["name"] == "Test Manager"

@@ -16,6 +16,7 @@ class TopicService:
         self.group_chat_id = group_chat_id
 
     async def create_topic(self, girl_name: str, manager_name: str, total_days: int = 21) -> int | None:
+        """Создаёт топик для девушки с иконкой 💊."""
         topic_name = templates.TOPIC_NAME.format(
             girl_name=girl_name,
             manager_name=manager_name,
@@ -27,6 +28,7 @@ class TopicService:
             result = await self.bot.create_forum_topic(
                 chat_id=self.group_chat_id,
                 name=topic_name,
+                icon_custom_emoji_id=templates.ICON_ACTIVE,
             )
 
             # Удаляем служебное сообщение о создании
@@ -181,7 +183,7 @@ class TopicService:
             total_days: int,
             status: str,
     ) -> None:
-        """Переименовывает топик при закрытии (✅ или ❌)."""
+        """Переименовывает топик при закрытии и меняет иконку."""
         if status == "completed":
             topic_name = templates.TOPIC_NAME_COMPLETED.format(
                 girl_name=girl_name,
@@ -189,6 +191,7 @@ class TopicService:
                 completed_days=completed_days,
                 total_days=total_days,
             )
+            icon_emoji_id = templates.ICON_COMPLETED
         else:
             topic_name = templates.TOPIC_NAME_REFUSED.format(
                 girl_name=girl_name,
@@ -196,12 +199,14 @@ class TopicService:
                 completed_days=completed_days,
                 total_days=total_days,
             )
+            icon_emoji_id = templates.ICON_REFUSED
 
         try:
             await self.bot.edit_forum_topic(
                 chat_id=self.group_chat_id,
                 message_thread_id=topic_id,
                 name=topic_name,
+                icon_custom_emoji_id=icon_emoji_id,
             )
         except TelegramAPIError as e:
             log_error(f"Failed to rename topic on close: {e}")

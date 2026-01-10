@@ -50,8 +50,35 @@ async def start_with_link(
 
 
 @router.callback_query(F.data == "understand")
-async def understand_callback(callback: CallbackQuery):
+async def understand_callback(
+        callback: CallbackQuery,
+        user_service,
+        course_service,
+):
     await callback.answer()
+
+    user = await user_service.get_by_telegram_id(callback.from_user.id)
+    if not user:
+        await callback.message.edit_text(templates.ERROR_NO_USER)
+        return
+
+    course = await course_service.get_active_by_user_id(user["id"])
+    if not course:
+        await callback.message.edit_text(templates.ERROR_NO_COURSE)
+        return
+
+    # Проверяем что курс создан сегодня
+    created_at = course.get("created_at", "")
+    if created_at:
+        from datetime import datetime
+        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
+        today = get_tashkent_now().date()
+
+        if created_date < today:
+            await course_service.set_expired(course["id"])
+            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+            return
+
     await callback.message.delete()
     await callback.message.answer(
         templates.SELECT_CYCLE_DAY,
@@ -78,19 +105,29 @@ async def cycle_day_callback(
         await callback.message.edit_text(templates.ERROR_NO_COURSE)
         return
 
+    # Проверяем что курс создан сегодня
+    created_at = course.get("created_at", "")
+    if created_at:
+        from datetime import datetime
+        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
+        today = get_tashkent_now().date()
+
+        if created_date < today:
+            await course_service.set_expired(course["id"])
+            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+            return
+
     now = get_tashkent_now()
 
     if cycle_day == 4:
-        start_date = now.date()
         keyboard = time_keyboard_today()
 
         if keyboard is None:
-            await callback.message.edit_text(
-                templates.TOO_LATE_TODAY,
-                reply_markup=cycle_day_keyboard(),
-            )
+            # Слишком поздно — показываем сообщение без кнопок
+            await callback.message.edit_text(templates.TOO_LATE_TODAY)
             return
 
+        start_date = now.date()
         text = templates.CYCLE_DAY_TODAY.format(cycle_day=cycle_day)
     else:
         start_date = (now + timedelta(days=1)).date()
@@ -116,11 +153,6 @@ async def time_callback(
 ):
     await callback.answer()
 
-    parts = callback.data.split("_")
-    hour = int(parts[1])
-    minute = int(parts[2])
-    intake_time = f"{hour:02d}:{minute:02d}"
-
     user = await user_service.get_by_telegram_id(callback.from_user.id)
     if not user:
         await callback.message.edit_text(templates.ERROR_NO_USER)
@@ -130,6 +162,23 @@ async def time_callback(
     if not course:
         await callback.message.edit_text(templates.ERROR_NO_COURSE)
         return
+
+    # Проверяем что курс создан сегодня
+    created_at = course.get("created_at", "")
+    if created_at:
+        from datetime import datetime
+        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
+        today = get_tashkent_now().date()
+
+        if created_date < today:
+            await course_service.set_expired(course["id"])
+            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+            return
+
+    parts = callback.data.split("_")
+    hour = int(parts[1])
+    minute = int(parts[2])
+    intake_time = f"{hour:02d}:{minute:02d}"
 
     await course_service.update(
         course_id=course["id"],
@@ -159,7 +208,6 @@ async def time_callback(
             start_date=start_date,
         )
 
-        # Сохраняем message_id для последующего редактирования
         if message_id:
             await course_service.update(
                 course_id=course["id"],

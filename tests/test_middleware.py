@@ -41,7 +41,7 @@ class TestSaveCommandsMessageMiddleware:
         message = mock_message(
             text="test",
             user_id=123,
-            chat_id=settings.manager_group_id,
+            chat_id=settings.commands_group_id,
             message_id=12345,
             message_thread_id=settings.commands_thread_id,
         )
@@ -96,7 +96,7 @@ class TestSaveCommandsMessageMiddleware:
         message = mock_message(
             text="test",
             user_id=123,
-            chat_id=settings.manager_group_id,
+            chat_id=settings.commands_group_id,
             message_id=12345,
             message_thread_id=99999,  # Другой топик
         )
@@ -123,7 +123,7 @@ class TestSaveCommandsMessageMiddleware:
         message = mock_message(
             text="test",
             user_id=123,
-            chat_id=settings.manager_group_id,
+            chat_id=settings.commands_group_id,
             message_id=12345,
             message_thread_id=settings.commands_thread_id,
         )
@@ -131,7 +131,7 @@ class TestSaveCommandsMessageMiddleware:
         data = {}  # Нет сервиса
 
         # Не должно упасть
-        result = await middleware(mock_handler, message, data)
+        await middleware(mock_handler, message, data)
 
         mock_handler.assert_called_once()
 
@@ -148,7 +148,7 @@ class TestSaveCommandsMessageMiddleware:
         message = mock_message(
             text="test",
             user_id=123,
-            chat_id=settings.manager_group_id,
+            chat_id=settings.commands_group_id,
             message_id=12345,
             message_thread_id=settings.commands_thread_id,
         )
@@ -160,7 +160,7 @@ class TestSaveCommandsMessageMiddleware:
         data = {"commands_messages_service": mock_service}
 
         # Не должно упасть
-        result = await middleware(mock_handler, message, data)
+        await middleware(mock_handler, message, data)
 
         # handler всё равно вызван
         mock_handler.assert_called_once()
@@ -178,7 +178,7 @@ class TestSaveCommandsMessageMiddleware:
         message = mock_message(
             text="test",
             user_id=123,
-            chat_id=settings.manager_group_id,
+            chat_id=settings.commands_group_id,
             message_id=12345,
             message_thread_id=settings.commands_thread_id,
         )

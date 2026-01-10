@@ -38,8 +38,6 @@ class CourseService:
 
         return result.data[0] if result.data else {}
 
-        return result.data[0] if result.data else {}
-
     async def get_by_invite_code(self, invite_code: str) -> dict | None:
         """Найти курс по invite_code."""
         result = await self.supabase.table("courses") \
@@ -102,5 +100,12 @@ class CourseService:
         """Завершить курс отказом."""
         await self.supabase.table("courses") \
             .update({"status": "refused"}) \
+            .eq("id", course_id) \
+            .execute()
+
+    async def set_expired(self, course_id: int) -> None:
+        """Завершить курс как истёкший (не завершила регистрацию вовремя)."""
+        await self.supabase.table("courses") \
+            .update({"status": "expired"}) \
             .eq("id", course_id) \
             .execute()

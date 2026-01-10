@@ -70,7 +70,7 @@ async def main():
     dp["intake_logs_service"] = IntakeLogsService(supabase)
     dp["topic_service"] = TopicService(
         bot=bot,
-        group_chat_id=settings.manager_group_id,
+        group_chat_id=settings.kok_group_id,
     )
     dp["gemini_service"] = GeminiService()
     dp["stats_messages_service"] = StatsMessagesService(supabase)

@@ -1,64 +1,55 @@
 """Тесты для CommandsMessagesService."""
 import pytest
+from unittest.mock import MagicMock
+
+from tests.conftest import create_supabase_chain
 
 
 class TestCommandsMessagesService:
-    """Тесты для сервиса хранения message_id."""
+    """Тесты для CommandsMessagesService."""
 
-    @pytest.fixture
-    def commands_messages_service(self, supabase):
+    @pytest.mark.asyncio
+    async def test_add_new(self, mock_supabase):
+        """Добавляет новый message_id."""
         from app.services.commands_messages import CommandsMessagesService
-        return CommandsMessagesService(supabase)
+
+        # Первый вызов - проверка существования (пусто)
+        # Второй вызов - insert
+        select_chain = create_supabase_chain([])
+        insert_chain = create_supabase_chain([{"id": 1, "message_id": 123}])
+
+        mock_supabase.table = MagicMock(side_effect=[select_chain, insert_chain])
+
+        service = CommandsMessagesService(mock_supabase)
+        await service.add(123)
+
+        insert_chain.insert.assert_called_once_with({"message_id": 123})
 
     @pytest.mark.asyncio
-    async def test_add_message_id(self, commands_messages_service, supabase):
-        """Добавление message_id."""
-        # Очищаем таблицу
-        await supabase.table("commands_messages").delete().neq("id", 0).execute()
+    async def test_get_all(self, mock_supabase):
+        """Возвращает список message_id."""
+        from app.services.commands_messages import CommandsMessagesService
 
-        await commands_messages_service.add(12345)
-
-        result = await supabase.table("commands_messages").select("*").execute()
-        assert len(result.data) == 1
-        assert result.data[0]["message_id"] == 12345
-
-    @pytest.mark.asyncio
-    async def test_get_all(self, commands_messages_service, supabase):
-        """Получение всех message_id."""
-        # Очищаем и добавляем тестовые данные
-        await supabase.table("commands_messages").delete().neq("id", 0).execute()
-        await supabase.table("commands_messages").insert([
+        chain = create_supabase_chain([
             {"message_id": 100},
-            {"message_id": 200},
-            {"message_id": 300},
-        ]).execute()
+            {"message_id": 101},
+        ])
+        mock_supabase.table = MagicMock(return_value=chain)
 
-        result = await commands_messages_service.get_all()
+        service = CommandsMessagesService(mock_supabase)
+        messages = await service.get_all()
 
-        assert len(result) == 3
-        assert 100 in result
-        assert 200 in result
-        assert 300 in result
+        assert messages == [100, 101]
 
     @pytest.mark.asyncio
-    async def test_get_all_empty(self, commands_messages_service, supabase):
-        """Получение пустого списка."""
-        await supabase.table("commands_messages").delete().neq("id", 0).execute()
+    async def test_delete_all(self, mock_supabase):
+        """Удаляет все записи."""
+        from app.services.commands_messages import CommandsMessagesService
 
-        result = await commands_messages_service.get_all()
+        chain = create_supabase_chain()
+        mock_supabase.table = MagicMock(return_value=chain)
 
-        assert result == []
+        service = CommandsMessagesService(mock_supabase)
+        await service.delete_all()
 
-    @pytest.mark.asyncio
-    async def test_delete_all(self, commands_messages_service, supabase):
-        """Удаление всех записей."""
-        # Добавляем тестовые данные
-        await supabase.table("commands_messages").insert([
-            {"message_id": 100},
-            {"message_id": 200},
-        ]).execute()
-
-        await commands_messages_service.delete_all()
-
-        result = await supabase.table("commands_messages").select("*").execute()
-        assert len(result.data) == 0
+        chain.delete.assert_called_once()

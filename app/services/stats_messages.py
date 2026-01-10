@@ -23,16 +23,12 @@ class StatsMessagesService:
         self,
         message_type: str,
         message_id: int,
-        chat_id: int,
-        thread_id: int,
     ) -> dict:
         """Создать или обновить запись."""
         result = await self.supabase.table("stats_messages") \
             .upsert({
                 "type": message_type,
                 "message_id": message_id,
-                "chat_id": chat_id,
-                "thread_id": thread_id,
                 "updated_at": datetime.now().isoformat(),
             }, on_conflict="type") \
             .execute()

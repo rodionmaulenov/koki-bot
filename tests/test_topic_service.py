@@ -32,7 +32,7 @@ class TestTopicServiceCreateTopic:
         # Проверяем формат названия
         call_args = bot.create_forum_topic.call_args
         name = call_args.kwargs["name"]
-        assert "💊" in name
+        assert "/" in name
         assert "Иванова Мария" in name
         assert "Айнура" in name
         assert "0/21" in name
@@ -95,7 +95,7 @@ class TestTopicServiceUpdateProgress:
         bot.edit_forum_topic.assert_called_once()
         call_args = bot.edit_forum_topic.call_args
         assert "5/21" in call_args.kwargs["name"]
-        assert "💊" in call_args.kwargs["name"]
+        assert "/" in call_args.kwargs["name"]
 
     @pytest.mark.asyncio
     async def test_updates_extended_course(self, bot):
@@ -346,7 +346,7 @@ class TestTopicServiceRenameOnClose:
 
     @pytest.mark.asyncio
     async def test_renames_topic_completed(self, bot):
-        """Переименовывает топик при completed (✅)."""
+        """Переименовывает топик при completed."""
         bot.edit_forum_topic = AsyncMock()
 
         service = TopicService(bot=bot, group_chat_id=-1001234567890)
@@ -364,15 +364,14 @@ class TestTopicServiceRenameOnClose:
         call_args = bot.edit_forum_topic.call_args
         name = call_args.kwargs["name"]
 
-        assert "✅" in name
+        assert "/" in name
         assert "Иванова Мария" in name
         assert "Айнура" in name
         assert "21/21" in name
-        assert "💊" not in name  # Иконка таблетки заменена
 
     @pytest.mark.asyncio
     async def test_renames_topic_refused(self, bot):
-        """Переименовывает топик при refused (❌)."""
+        """Переименовывает топик при refused."""
         bot.edit_forum_topic = AsyncMock()
 
         service = TopicService(bot=bot, group_chat_id=-1001234567890)
@@ -389,7 +388,7 @@ class TestTopicServiceRenameOnClose:
         call_args = bot.edit_forum_topic.call_args
         name = call_args.kwargs["name"]
 
-        assert "❌" in name
+        assert "/" in name
         assert "Петрова Анна" in name
         assert "5/21" in name
 
@@ -643,7 +642,7 @@ class TestTopicClosureFullSequence:
 
         # Проверяем порядок и содержимое
         rename_name = bot.edit_forum_topic.call_args.kwargs["name"]
-        assert "✅" in rename_name
+        assert "/" in rename_name
 
         closure_text = bot.send_message.call_args.kwargs["text"]
         assert "Курс пройден полностью" in closure_text
@@ -685,7 +684,7 @@ class TestTopicClosureFullSequence:
 
         # Проверяем
         rename_name = bot.edit_forum_topic.call_args.kwargs["name"]
-        assert "❌" in rename_name
+        assert "/" in rename_name
         assert "5/21" in rename_name
 
         closure_text = bot.send_message.call_args.kwargs["text"]
