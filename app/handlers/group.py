@@ -448,8 +448,9 @@ async def complete_course_callback(
 
         await topic_service.close_topic(topic_id)
 
+    # Редактируем сообщение с кнопками (убираем кнопки)
     girl_name = user.get("name", "—") if user else "—"
-    await callback.message.answer(
+    await callback.message.edit_text(
         templates.MANAGER_COURSE_COMPLETED.format(
             girl_name=girl_name,
             day=current_day,
