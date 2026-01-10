@@ -151,13 +151,20 @@ async def time_callback(
     if topic_id:
         await user_service.set_topic_id(user["id"], topic_id)
 
-        await topic_service.send_registration_info(
+        message_id = await topic_service.send_registration_info(
             topic_id=topic_id,
             course_id=course["id"],
             cycle_day=course.get("cycle_day", 1),
             intake_time=intake_time,
             start_date=start_date,
         )
+
+        # Сохраняем message_id для последующего редактирования
+        if message_id:
+            await course_service.update(
+                course_id=course["id"],
+                registration_message_id=message_id,
+            )
 
     text = templates.REGISTRATION_COMPLETE.format(
         start_date=start_date,

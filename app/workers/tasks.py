@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from app.services.courses import CourseService
 from app.services.dashboard import DashboardService
+from app.services.managers import ManagerService
 from app.services.topic import TopicService
 from app.config import get_settings
 from app.services.stats_messages import StatsMessagesService
@@ -15,6 +16,7 @@ from app.utils.time_utils import (
     get_tashkent_now,
     calculate_time_range_before,
     calculate_time_range_after,
+    format_date,
 )
 from app import templates
 
@@ -156,6 +158,7 @@ async def send_refusals():
 
     course_service = CourseService(supabase)
     user_service = UserService(supabase)
+    manager_service = ManagerService(supabase)
     intake_logs_service = IntakeLogsService(supabase)
     dashboard_service = DashboardService(supabase, settings.manager_group_id)
     topic_service = TopicService(bot, settings.manager_group_id)
@@ -169,6 +172,7 @@ async def send_refusals():
     for course in courses:
         course_id = course["id"]
         current_day = course.get("current_day", 1)
+        total_days = course.get("total_days") or 21
 
         # Определяем причину отказа
         refusal_reason = None
@@ -197,10 +201,42 @@ async def send_refusals():
         # Завершаем курс
         await course_service.set_refused(course_id)
 
-        # Закрываем топик
+        # Закрываем топик с полной последовательностью
         user = await user_service.get_by_id(course["user_id"])
         topic_id = user.get("topic_id") if user else None
         if topic_id:
+            manager = await manager_service.get_by_id(user["manager_id"])
+            manager_name = manager.get("name", "") if manager else ""
+
+            # Определяем причину
+            if refusal_reason == "3delays":
+                reason_text = templates.REFUSAL_REASON_3_DELAYS
+            else:
+                reason_text = templates.REFUSAL_REASON_MISSED
+
+            await topic_service.rename_topic_on_close(
+                topic_id=topic_id,
+                girl_name=user.get("name", ""),
+                manager_name=manager_name,
+                completed_days=current_day,
+                total_days=total_days,
+                status="refused",
+            )
+
+            if course.get("registration_message_id"):
+                await topic_service.remove_registration_buttons(
+                    message_id=course["registration_message_id"],
+                    cycle_day=course.get("cycle_day", 1),
+                    intake_time=course.get("intake_time", ""),
+                    start_date=format_date(course.get("start_date", "")),
+                )
+
+            await topic_service.send_closure_message(
+                topic_id=topic_id,
+                status="refused",
+                reason=reason_text,
+            )
+
             await topic_service.close_topic(topic_id)
 
         # Записываем в intake_logs

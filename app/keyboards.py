@@ -2,6 +2,7 @@
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from app.utils.time_utils import get_tashkent_now
+from app import templates
 
 # Месяцы на русском (потом заменишь на узбекский)
 MONTHS = {
@@ -14,7 +15,7 @@ MONTHS = {
 def understand_button() -> InlineKeyboardMarkup:
     """Кнопка 'Понятно' после правил."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Понятно ✓", callback_data="understand")]
+        [InlineKeyboardButton(text=templates.BTN_UNDERSTAND, callback_data="understand")]
     ])
 
 
@@ -28,7 +29,7 @@ def cycle_day_keyboard() -> InlineKeyboardMarkup:
     for cycle_day in range(1, 5):
         buttons.append(
             InlineKeyboardButton(
-                text=f"{cycle_day} день - {day} {month}",
+                text=templates.BTN_CYCLE_DAY.format(cycle_day=cycle_day, day=day, month=month),
                 callback_data=f"cycle_{cycle_day}",
             )
         )

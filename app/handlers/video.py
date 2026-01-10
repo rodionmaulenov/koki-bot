@@ -6,7 +6,7 @@ from aiogram import Router, F
 from aiogram.types import Message
 
 from app.services.gemini import GeminiService
-from app.utils.time_utils import get_tashkent_now, is_too_early
+from app.utils.time_utils import get_tashkent_now, is_too_early, format_date
 from app import templates
 
 router = Router()
@@ -139,8 +139,35 @@ async def video_handler(
                 current_day=total_days,
             )
             response_text = templates.VIDEO_COURSE_FINISHED
-            # Закрываем топик
+
+            # Закрываем топик с полной последовательностью
             if topic_id:
+                manager = await manager_service.get_by_id(user["manager_id"])
+                manager_name = manager.get("name", "") if manager else ""
+
+                await topic_service.rename_topic_on_close(
+                    topic_id=topic_id,
+                    girl_name=user.get("name", ""),
+                    manager_name=manager_name,
+                    completed_days=total_days,
+                    total_days=total_days,
+                    status="completed",
+                )
+
+                if course.get("registration_message_id"):
+                    await topic_service.remove_registration_buttons(
+                        message_id=course["registration_message_id"],
+                        cycle_day=course.get("cycle_day", 1),
+                        intake_time=course.get("intake_time", ""),
+                        start_date=format_date(course.get("start_date", "")),
+                    )
+
+                await topic_service.send_closure_message(
+                    topic_id=topic_id,
+                    status="completed",
+                    reason="",
+                )
+
                 await topic_service.close_topic(topic_id)
         else:
             await course_service.update(
@@ -148,7 +175,7 @@ async def video_handler(
                 current_day=new_day,
             )
 
-        if topic_id:
+        if topic_id and new_day <= total_days:
             manager = await manager_service.get_by_id(user["manager_id"])
             await topic_service.update_progress(
                 topic_id=topic_id,

@@ -11,6 +11,7 @@ from app import templates
 from app.services.dashboard import DashboardService
 from app.config import get_settings
 from app.states import AddGirlStates, AddVideoStates
+from app.utils.time_utils import format_date
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -302,7 +303,9 @@ async def verify_no_callback(
     callback: CallbackQuery,
     course_service,
     user_service,
+    manager_service,
     intake_logs_service,
+    topic_service,
     bot,
     supabase,
 ):
@@ -325,6 +328,7 @@ async def verify_no_callback(
     course = await course_service.get_by_id(course_id)
     total_days = course.get("total_days") or 21 if course else 21
 
+    user = None
     if course:
         user = await user_service.get_by_id(course["user_id"])
         if user and user.get("telegram_id"):
@@ -335,6 +339,37 @@ async def verify_no_callback(
                 )
             except Exception:
                 pass
+
+    # Закрываем топик с полной последовательностью
+    topic_id = user.get("topic_id") if user else None
+    if topic_id and course:
+        manager = await manager_service.get_by_id(user["manager_id"])
+        manager_name = manager.get("name", "") if manager else ""
+
+        await topic_service.rename_topic_on_close(
+            topic_id=topic_id,
+            girl_name=user.get("name", ""),
+            manager_name=manager_name,
+            completed_days=day,
+            total_days=total_days,
+            status="refused",
+        )
+
+        if course.get("registration_message_id"):
+            await topic_service.remove_registration_buttons(
+                message_id=course["registration_message_id"],
+                cycle_day=course.get("cycle_day", 1),
+                intake_time=course.get("intake_time", ""),
+                start_date=format_date(course.get("start_date", "")),
+            )
+
+        await topic_service.send_closure_message(
+            topic_id=topic_id,
+            status="refused",
+            reason=templates.REFUSAL_REASON_VIDEO_REJECTED,
+        )
+
+        await topic_service.close_topic(topic_id)
 
     await callback.message.edit_text(templates.MANAGER_VIDEO_REJECTED.format(day=day, total_days=total_days))
 
@@ -348,6 +383,7 @@ async def complete_course_callback(
     callback: CallbackQuery,
     course_service,
     user_service,
+    manager_service,
     topic_service,
     bot,
 ):
@@ -381,9 +417,35 @@ async def complete_course_callback(
         except Exception:
             pass
 
-    # Закрываем топик
+    # Закрываем топик с полной последовательностью
     topic_id = user.get("topic_id") if user else None
     if topic_id:
+        manager = await manager_service.get_by_id(user["manager_id"])
+        manager_name = manager.get("name", "") if manager else ""
+
+        await topic_service.rename_topic_on_close(
+            topic_id=topic_id,
+            girl_name=user.get("name", ""),
+            manager_name=manager_name,
+            completed_days=current_day,
+            total_days=total_days,
+            status="completed",
+        )
+
+        if course.get("registration_message_id"):
+            await topic_service.remove_registration_buttons(
+                message_id=course["registration_message_id"],
+                cycle_day=course.get("cycle_day", 1),
+                intake_time=course.get("intake_time", ""),
+                start_date=format_date(course.get("start_date", "")),
+            )
+
+        await topic_service.send_closure_message(
+            topic_id=topic_id,
+            status="completed",
+            reason="",
+        )
+
         await topic_service.close_topic(topic_id)
 
     girl_name = user.get("name", "—") if user else "—"

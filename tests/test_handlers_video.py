@@ -455,7 +455,7 @@ class TestExtendedCourseLogic:
         assert call_text == templates.VIDEO_COURSE_FINISHED
 
     @pytest.mark.asyncio
-    async def test_closes_topic_on_course_complete(
+    async def test_full_closure_sequence_on_course_complete(
         self,
         mock_video_message,
         user_service,
@@ -468,28 +468,35 @@ class TestExtendedCourseLogic:
         test_active_course,
         supabase,
     ):
-        """Закрывает топик когда курс завершается."""
+        """Выполняет полную последовательность закрытия топика при завершении курса."""
         from app.handlers.video import video_handler
         from app.services.gemini import GeminiService
         from unittest.mock import MagicMock
 
-        # Устанавливаем topic_id пользователю
+        # Устанавливаем topic_id и registration_message_id
         topic_id = 12345
+        registration_message_id = 999
+
         await supabase.table("users") \
             .update({"topic_id": topic_id}) \
             .eq("id", test_user_with_telegram["id"]) \
             .execute()
 
-        # Устанавливаем день 21 и total_days = 21 (стандартный курс)
         await supabase.table("courses") \
-            .update({"current_day": 21, "total_days": 21}) \
+            .update({
+                "current_day": 21,
+                "total_days": 21,
+                "registration_message_id": registration_message_id,
+            }) \
             .eq("id", test_active_course["id"]) \
             .execute()
 
-        # Mock topic_service
+        # Mock topic_service с всеми методами
         mock_topic_service = MagicMock()
         mock_topic_service.send_video = AsyncMock()
-        mock_topic_service.update_progress = AsyncMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
         mock_topic_service.close_topic = AsyncMock()
 
         message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
@@ -509,5 +516,82 @@ class TestExtendedCourseLogic:
                 bot=bot,
             )
 
-        # Проверяем что close_topic был вызван
-        mock_topic_service.close_topic.assert_called_once_with(topic_id)
+        # Проверяем полную последовательность закрытия
+        mock_topic_service.rename_topic_on_close.assert_called_once()
+        mock_topic_service.remove_registration_buttons.assert_called_once()
+        mock_topic_service.send_closure_message.assert_called_once()
+        mock_topic_service.close_topic.assert_called_once()
+
+        # Проверяем параметры rename
+        rename_call = mock_topic_service.rename_topic_on_close.call_args
+        assert rename_call.kwargs["topic_id"] == topic_id
+        assert rename_call.kwargs["status"] == "completed"
+        assert rename_call.kwargs["completed_days"] == 21
+        assert rename_call.kwargs["total_days"] == 21
+
+        # Проверяем параметры closure message
+        closure_call = mock_topic_service.send_closure_message.call_args
+        assert closure_call.kwargs["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_skips_buttons_removal_if_no_message_id(
+        self,
+        mock_video_message,
+        user_service,
+        course_service,
+        intake_logs_service,
+        manager_service,
+        mock_gemini_confirmed,
+        bot,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Пропускает удаление кнопок если нет registration_message_id."""
+        from app.handlers.video import video_handler
+        from app.services.gemini import GeminiService
+        from unittest.mock import MagicMock
+
+        # Устанавливаем topic_id БЕЗ registration_message_id
+        topic_id = 12345
+        await supabase.table("users") \
+            .update({"topic_id": topic_id}) \
+            .eq("id", test_user_with_telegram["id"]) \
+            .execute()
+
+        await supabase.table("courses") \
+            .update({"current_day": 21, "total_days": 21}) \
+            .eq("id", test_active_course["id"]) \
+            .execute()
+
+        mock_topic_service = MagicMock()
+        mock_topic_service.send_video = AsyncMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        message = mock_video_message(user_id=test_user_with_telegram["telegram_id"])
+
+        with patch.object(GeminiService, 'download_video') as mock_download:
+            mock_download.return_value.__aenter__ = AsyncMock(return_value="/tmp/test.mp4")
+            mock_download.return_value.__aexit__ = AsyncMock(return_value=None)
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=intake_logs_service,
+                topic_service=mock_topic_service,
+                manager_service=manager_service,
+                gemini_service=mock_gemini_confirmed,
+                bot=bot,
+            )
+
+        # remove_registration_buttons НЕ должен вызываться
+        mock_topic_service.remove_registration_buttons.assert_not_called()
+
+        # Остальные методы должны вызываться
+        mock_topic_service.rename_topic_on_close.assert_called_once()
+        mock_topic_service.send_closure_message.assert_called_once()
+        mock_topic_service.close_topic.assert_called_once()

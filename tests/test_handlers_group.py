@@ -420,6 +420,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        manager_service,
         topic_service,
         bot,
         test_user_with_telegram,
@@ -438,6 +439,7 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            manager_service=manager_service,
             topic_service=topic_service,
             bot=bot,
         )
@@ -458,6 +460,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        manager_service,
         topic_service,
         bot,
     ):
@@ -471,6 +474,7 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            manager_service=manager_service,
             topic_service=topic_service,
             bot=bot,
         )
@@ -485,6 +489,7 @@ class TestCompleteCourseCallback:
         mock_callback,
         course_service,
         user_service,
+        manager_service,
         topic_service,
         bot,
         test_user_with_telegram,
@@ -508,6 +513,7 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            manager_service=manager_service,
             topic_service=topic_service,
             bot=bot,
         )
@@ -516,30 +522,43 @@ class TestCompleteCourseCallback:
         assert "уже завершён" in call_text.lower()
 
     @pytest.mark.asyncio
-    async def test_closes_topic_on_complete(
+    async def test_full_closure_sequence_on_complete(
         self,
         mock_callback,
         course_service,
         user_service,
         bot,
+        test_manager,
         test_user_with_telegram,
         test_active_course,
         supabase,
     ):
-        """Закрывает топик при завершении курса."""
+        """Выполняет полную последовательность закрытия топика."""
         from app.handlers.group import complete_course_callback
-        from unittest.mock import AsyncMock, MagicMock
+        from app.services.managers import ManagerService
 
-        # Устанавливаем topic_id пользователю
+        # Устанавливаем topic_id и registration_message_id
         topic_id = 12345
+        registration_message_id = 999
+
         await supabase.table("users") \
             .update({"topic_id": topic_id}) \
             .eq("id", test_user_with_telegram["id"]) \
             .execute()
 
+        await supabase.table("courses") \
+            .update({"registration_message_id": registration_message_id}) \
+            .eq("id", test_active_course["id"]) \
+            .execute()
+
         # Mock topic_service
         mock_topic_service = MagicMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
         mock_topic_service.close_topic = AsyncMock()
+
+        manager_service = ManagerService(supabase)
 
         callback = mock_callback(
             data=f"complete_{test_active_course['id']}",
@@ -550,12 +569,77 @@ class TestCompleteCourseCallback:
             callback=callback,
             course_service=course_service,
             user_service=user_service,
+            manager_service=manager_service,
             topic_service=mock_topic_service,
             bot=bot,
         )
 
-        # Проверяем что close_topic был вызван с правильным topic_id
-        mock_topic_service.close_topic.assert_called_once_with(topic_id)
+        # Проверяем что вся последовательность выполнена
+        mock_topic_service.rename_topic_on_close.assert_called_once()
+        mock_topic_service.remove_registration_buttons.assert_called_once()
+        mock_topic_service.send_closure_message.assert_called_once()
+        mock_topic_service.close_topic.assert_called_once()
+
+        # Проверяем параметры rename
+        rename_call = mock_topic_service.rename_topic_on_close.call_args
+        assert rename_call.kwargs["topic_id"] == topic_id
+        assert rename_call.kwargs["status"] == "completed"
+
+        # Проверяем параметры closure message
+        closure_call = mock_topic_service.send_closure_message.call_args
+        assert closure_call.kwargs["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_skips_buttons_removal_if_no_message_id(
+        self,
+        mock_callback,
+        course_service,
+        user_service,
+        bot,
+        test_manager,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Пропускает удаление кнопок если нет registration_message_id."""
+        from app.handlers.group import complete_course_callback
+        from app.services.managers import ManagerService
+
+        # Устанавливаем topic_id БЕЗ registration_message_id
+        topic_id = 12345
+        await supabase.table("users") \
+            .update({"topic_id": topic_id}) \
+            .eq("id", test_user_with_telegram["id"]) \
+            .execute()
+
+        mock_topic_service = MagicMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        manager_service = ManagerService(supabase)
+
+        callback = mock_callback(
+            data=f"complete_{test_active_course['id']}",
+        )
+
+        await complete_course_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            topic_service=mock_topic_service,
+            bot=bot,
+        )
+
+        # remove_registration_buttons НЕ должен вызываться
+        mock_topic_service.remove_registration_buttons.assert_not_called()
+
+        # Остальные методы должны вызываться
+        mock_topic_service.rename_topic_on_close.assert_called_once()
+        mock_topic_service.send_closure_message.assert_called_once()
+        mock_topic_service.close_topic.assert_called_once()
 
 
 class TestExtendCourseCallback:
@@ -869,3 +953,194 @@ class TestClearCommand:
 
         # FSM сброшен
         mock_state.clear.assert_called_once()
+
+
+class TestVerifyNoCallback:
+    """Тесты для отклонения видео менеджером."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_video_and_closes_course(
+        self,
+        mock_callback,
+        course_service,
+        user_service,
+        manager_service,
+        intake_logs_service,
+        bot,
+        test_manager,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Отклоняет видео и завершает курс."""
+        from app.handlers.group import verify_no_callback
+
+        # Создаём intake_log для текущего дня
+        await intake_logs_service.create(
+            course_id=test_active_course["id"],
+            day=1,
+            status="pending_review",
+            video_file_id="test_video",
+        )
+
+        mock_topic_service = MagicMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        callback = mock_callback(
+            data=f"verify_no_{test_active_course['id']}_1",
+            user_id=test_manager["telegram_id"],
+        )
+
+        await verify_no_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            intake_logs_service=intake_logs_service,
+            topic_service=mock_topic_service,
+            bot=bot,
+            supabase=supabase,
+        )
+
+        # Проверяем что курс refused
+        course = await supabase.table("courses") \
+            .select("status") \
+            .eq("id", test_active_course["id"]) \
+            .single() \
+            .execute()
+
+        assert course.data["status"] == "refused"
+
+    @pytest.mark.asyncio
+    async def test_full_closure_sequence_on_reject(
+        self,
+        mock_callback,
+        course_service,
+        user_service,
+        intake_logs_service,
+        bot,
+        test_manager,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Выполняет полную последовательность закрытия при отклонении."""
+        from app.handlers.group import verify_no_callback
+        from app.services.managers import ManagerService
+        from app import templates
+
+        # Устанавливаем topic_id и registration_message_id
+        topic_id = 12345
+        registration_message_id = 999
+
+        await supabase.table("users") \
+            .update({"topic_id": topic_id}) \
+            .eq("id", test_user_with_telegram["id"]) \
+            .execute()
+
+        await supabase.table("courses") \
+            .update({"registration_message_id": registration_message_id}) \
+            .eq("id", test_active_course["id"]) \
+            .execute()
+
+        # Создаём intake_log
+        await intake_logs_service.create(
+            course_id=test_active_course["id"],
+            day=1,
+            status="pending_review",
+            video_file_id="test_video",
+        )
+
+        mock_topic_service = MagicMock()
+        mock_topic_service.rename_topic_on_close = AsyncMock()
+        mock_topic_service.remove_registration_buttons = AsyncMock()
+        mock_topic_service.send_closure_message = AsyncMock()
+        mock_topic_service.close_topic = AsyncMock()
+
+        manager_service = ManagerService(supabase)
+
+        callback = mock_callback(
+            data=f"verify_no_{test_active_course['id']}_1",
+            user_id=test_manager["telegram_id"],
+        )
+
+        await verify_no_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            intake_logs_service=intake_logs_service,
+            topic_service=mock_topic_service,
+            bot=bot,
+            supabase=supabase,
+        )
+
+        # Проверяем полную последовательность
+        mock_topic_service.rename_topic_on_close.assert_called_once()
+        mock_topic_service.remove_registration_buttons.assert_called_once()
+        mock_topic_service.send_closure_message.assert_called_once()
+        mock_topic_service.close_topic.assert_called_once()
+
+        # Проверяем что статус refused
+        rename_call = mock_topic_service.rename_topic_on_close.call_args
+        assert rename_call.kwargs["status"] == "refused"
+
+        # Проверяем причину
+        closure_call = mock_topic_service.send_closure_message.call_args
+        assert closure_call.kwargs["reason"] == templates.REFUSAL_REASON_VIDEO_REJECTED
+
+    @pytest.mark.asyncio
+    async def test_updates_intake_log_status(
+        self,
+        mock_callback,
+        course_service,
+        user_service,
+        manager_service,
+        intake_logs_service,
+        topic_service,
+        bot,
+        test_manager,
+        test_user_with_telegram,
+        test_active_course,
+        supabase,
+    ):
+        """Обновляет статус intake_log на missed."""
+        from app.handlers.group import verify_no_callback
+
+        # Создаём intake_log
+        await intake_logs_service.create(
+            course_id=test_active_course["id"],
+            day=1,
+            status="pending_review",
+            video_file_id="test_video",
+        )
+
+        callback = mock_callback(
+            data=f"verify_no_{test_active_course['id']}_1",
+            user_id=test_manager["telegram_id"],
+        )
+
+        await verify_no_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            intake_logs_service=intake_logs_service,
+            topic_service=topic_service,
+            bot=bot,
+            supabase=supabase,
+        )
+
+        # Проверяем статус в intake_logs
+        log = await supabase.table("intake_logs") \
+            .select("status, verified_by") \
+            .eq("course_id", test_active_course["id"]) \
+            .eq("day", 1) \
+            .single() \
+            .execute()
+
+        assert log.data["status"] == "missed"
+        assert log.data["verified_by"] == "manager"
