@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, CommandObject
 
 from app.keyboards import cycle_day_keyboard, time_keyboard_today, time_keyboard, understand_button
-from app.utils.time_utils import get_tashkent_now, format_date
+from app.utils.time_utils import get_tashkent_now, format_date, is_created_today
 from app import templates
 
 router = Router()
@@ -68,16 +68,10 @@ async def understand_callback(
         return
 
     # Проверяем что курс создан сегодня
-    created_at = course.get("created_at", "")
-    if created_at:
-        from datetime import datetime
-        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
-        today = get_tashkent_now().date()
-
-        if created_date < today:
-            await course_service.set_expired(course["id"])
-            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
-            return
+    if not is_created_today(course.get("created_at", "")):
+        await course_service.set_expired(course["id"])
+        await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+        return
 
     await callback.message.delete()
     await callback.message.answer(
@@ -106,16 +100,10 @@ async def cycle_day_callback(
         return
 
     # Проверяем что курс создан сегодня
-    created_at = course.get("created_at", "")
-    if created_at:
-        from datetime import datetime
-        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
-        today = get_tashkent_now().date()
-
-        if created_date < today:
-            await course_service.set_expired(course["id"])
-            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
-            return
+    if not is_created_today(course.get("created_at", "")):
+        await course_service.set_expired(course["id"])
+        await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+        return
 
     now = get_tashkent_now()
 
@@ -164,16 +152,10 @@ async def time_callback(
         return
 
     # Проверяем что курс создан сегодня
-    created_at = course.get("created_at", "")
-    if created_at:
-        from datetime import datetime
-        created_date = datetime.fromisoformat(created_at.replace("Z", "+00:00")).date()
-        today = get_tashkent_now().date()
-
-        if created_date < today:
-            await course_service.set_expired(course["id"])
-            await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
-            return
+    if not is_created_today(course.get("created_at", "")):
+        await course_service.set_expired(course["id"])
+        await callback.message.edit_text(templates.TOO_LATE_REGISTRATION_EXPIRED)
+        return
 
     parts = callback.data.split("_")
     hour = int(parts[1])

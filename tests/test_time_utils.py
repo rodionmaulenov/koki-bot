@@ -5,6 +5,7 @@ from app.utils.time_utils import (
     get_tashkent_now,
     format_date,
     is_too_early,
+    is_created_today,
     MONTHS,
 )
 
@@ -284,3 +285,89 @@ class TestIsTooEarly:
             _, window_start = is_too_early("10:30")
             assert ":" in window_start
             assert len(window_start) == 5
+
+
+class TestIsCreatedToday:
+    """Тесты для is_created_today."""
+
+    def test_created_today_utc_morning(self):
+        """Создано сегодня утром UTC — сегодня по Ташкенту."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        # Ташкент: 10 января 2026, 10:00 (UTC: 05:00)
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # Создано 10 января в 05:00 UTC = 10:00 Ташкент
+            result = is_created_today("2026-01-10T05:00:00Z")
+            assert result is True
+
+    def test_created_yesterday_utc_evening(self):
+        """Создано вчера вечером UTC — вчера по Ташкенту."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        # Ташкент: 10 января 2026, 10:00
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # Создано 9 января в 15:00 UTC = 20:00 Ташкент 9 января
+            result = is_created_today("2026-01-09T15:00:00Z")
+            assert result is False
+
+    def test_created_late_utc_same_day_tashkent(self):
+        """Создано поздно вечером UTC — тот же день по Ташкенту."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        # Ташкент: 11 января 2026, 01:30 (после полуночи)
+        fixed_time = datetime(2026, 1, 11, 1, 30, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # Создано 10 января в 20:00 UTC = 11 января 01:00 Ташкент
+            result = is_created_today("2026-01-10T20:00:00Z")
+            assert result is True
+
+    def test_timezone_boundary_case(self):
+        """Граничный случай: UTC вечер = Ташкент следующий день."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        # Ташкент: 11 января 2026, 10:00
+        fixed_time = datetime(2026, 1, 11, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            # Создано 10 января в 20:00 UTC = 11 января 01:00 Ташкент — это сегодня!
+            result = is_created_today("2026-01-10T20:00:00Z")
+            assert result is True
+
+            # Создано 10 января в 15:00 UTC = 10 января 20:00 Ташкент — это вчера
+            result = is_created_today("2026-01-10T15:00:00Z")
+            assert result is False
+
+    def test_empty_string(self):
+        """Пустая строка возвращает False."""
+        result = is_created_today("")
+        assert result is False
+
+    def test_none_like_empty(self):
+        """None-подобное значение возвращает False."""
+        result = is_created_today("")
+        assert result is False
+
+    def test_without_z_suffix(self):
+        """Дата без Z суффикса (с +00:00)."""
+        from unittest.mock import patch
+        from datetime import datetime
+        import pytz
+
+        fixed_time = datetime(2026, 1, 10, 10, 0, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+
+        with patch("app.utils.time_utils.get_tashkent_now", return_value=fixed_time):
+            result = is_created_today("2026-01-10T05:00:00+00:00")
+            assert result is True

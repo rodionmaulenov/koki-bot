@@ -143,6 +143,30 @@ def calculate_time_range_after(minutes_after: int, tolerance: int = 5) -> tuple[
     return f"{target_hour:02d}:{min_minute:02d}", f"{target_hour:02d}:{max_minute:02d}"
 
 
+def is_created_today(created_at: str) -> bool:
+    """Проверяет, создан ли курс сегодня (по Ташкенту).
+
+    Args:
+        created_at: Дата создания из Supabase (ISO формат, UTC или с timezone)
+
+    Returns:
+        True если создано сегодня по Ташкенту, False если вчера или раньше
+    """
+    if not created_at:
+        return False
+
+    # Парсим created_at (может быть UTC или с timezone)
+    created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+
+    # Конвертируем в Ташкент
+    created_tashkent = created_dt.astimezone(TASHKENT_TZ).date()
+
+    # Сегодня по Ташкенту
+    today_tashkent = get_tashkent_now().date()
+
+    return created_tashkent >= today_tashkent
+
+
 def is_too_early(intake_time: str, minutes_before: int = 10) -> tuple[bool, str]:
     """Проверяет не слишком ли рано для видео.
 
