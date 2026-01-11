@@ -98,7 +98,6 @@ class DashboardService:
             .execute()
 
         courses = result.data or []
-        total = len(courses)
 
         lines = [f"💊 <b>Активные</b>", ""]
 
@@ -181,7 +180,6 @@ class DashboardService:
             .execute()
 
         courses = result.data or []
-        total = len(courses)
 
         lines = [f"❌ <b>Отказы</b>", ""]
 
@@ -243,7 +241,6 @@ class DashboardService:
             .execute()
 
         courses = result.data or []
-        total = len(courses)
 
         lines = [f"✅ <b>Завершили</b>", ""]
 
@@ -330,11 +327,10 @@ class DashboardService:
         from app.services.stats_messages import StatsMessagesService
 
         settings = get_settings()
-        stats_service = StatsMessagesService(self.supabase)
+        stats_service = StatsMessagesService(self.supabase, settings.bot_type)
         dashboard_text = await self.generate_full_dashboard()
-        dashboard_type = settings.dashboard_type
 
-        existing = await stats_service.get_by_type(dashboard_type)
+        existing = await stats_service.get()
 
         if existing and existing.get("message_id"):
             try:
@@ -344,14 +340,14 @@ class DashboardService:
                     text=dashboard_text,
                     parse_mode="HTML",
                 )
-                await stats_service.update_timestamp(dashboard_type)
-                print(f"📊 Dashboard '{dashboard_type}' updated")
+                await stats_service.update_timestamp()
+                print(f"📊 Dashboard '{settings.bot_type}' updated")
                 return
             except Exception as e:
                 error_msg = str(e).lower()
 
                 if "message is not modified" in error_msg:
-                    print(f"📊 Dashboard '{dashboard_type}' unchanged")
+                    print(f"📊 Dashboard '{settings.bot_type}' unchanged")
                     return
 
                 if "message to edit not found" in error_msg:
@@ -374,10 +370,7 @@ class DashboardService:
 
             message = await bot.send_message(**send_kwargs)
 
-            await stats_service.upsert(
-                message_type=dashboard_type,
-                message_id=message.message_id,
-            )
-            print(f"📊 Dashboard '{dashboard_type}' created, message_id={message.message_id}")
+            await stats_service.upsert(message_id=message.message_id)
+            print(f"📊 Dashboard '{settings.bot_type}' created, message_id={message.message_id}")
         except Exception as e:
             print(f"❌ Failed to create dashboard: {e}")

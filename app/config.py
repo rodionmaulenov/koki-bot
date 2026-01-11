@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     kok_group_id: int
 
     # Дашборд
-    dashboard_type: str = "kok_dashboard"
+    bot_type: str = "kok_dashboard"
 
     class Config:
         env_file = BASE_DIR / ".env"

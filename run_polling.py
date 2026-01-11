@@ -73,8 +73,8 @@ async def main():
         group_chat_id=settings.kok_group_id,
     )
     dp["gemini_service"] = GeminiService()
-    dp["stats_messages_service"] = StatsMessagesService(supabase)
-    dp["commands_messages_service"] = CommandsMessagesService(supabase)
+    dp["stats_messages_service"] = StatsMessagesService(supabase, settings.bot_type)
+    dp["commands_messages_service"] = CommandsMessagesService(supabase, settings.bot_type)
     dp["settings"] = settings
     dp["bot"] = bot
     dp["supabase"] = supabase

@@ -6,38 +6,35 @@ from datetime import datetime
 class StatsMessagesService:
     """Управляет сообщениями дашбордов в БД."""
 
-    def __init__(self, supabase):
+    def __init__(self, supabase, bot_type: str):
         self.supabase = supabase
+        self.bot_type = bot_type
 
-    async def get_by_type(self, message_type: str) -> dict | None:
-        """Получить сообщение по типу (active/refusals)."""
+    async def get(self) -> dict | None:
+        """Получить сообщение дашборда для этого бота."""
         result = await self.supabase.table("stats_messages") \
             .select("*") \
-            .eq("type", message_type) \
+            .eq("bot_type", self.bot_type) \
             .maybe_single() \
             .execute()
 
         return result.data if result else None
 
-    async def upsert(
-        self,
-        message_type: str,
-        message_id: int,
-    ) -> dict:
+    async def upsert(self, message_id: int) -> dict:
         """Создать или обновить запись."""
         result = await self.supabase.table("stats_messages") \
             .upsert({
-                "type": message_type,
+                "bot_type": self.bot_type,
                 "message_id": message_id,
                 "updated_at": datetime.now().isoformat(),
-            }, on_conflict="type") \
+            }, on_conflict="bot_type") \
             .execute()
 
         return result.data[0] if result.data else {}
 
-    async def update_timestamp(self, message_type: str) -> None:
+    async def update_timestamp(self) -> None:
         """Обновить updated_at."""
         await self.supabase.table("stats_messages") \
             .update({"updated_at": datetime.now().isoformat()}) \
-            .eq("type", message_type) \
+            .eq("bot_type", self.bot_type) \
             .execute()
