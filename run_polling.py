@@ -80,7 +80,7 @@ async def main():
     dp["supabase"] = supabase
 
     # Middleware для сохранения message_id в топике Команды
-    dp.message.middleware(SaveCommandsMessageMiddleware())
+    dp.message.outer_middleware(SaveCommandsMessageMiddleware())
 
     logger.info("🚀 Бот запускается (polling)...")
 
