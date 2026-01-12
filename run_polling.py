@@ -8,13 +8,14 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from rich.logging import RichHandler
-from supabase._async.client import create_client as acreate_client
+from supabase import acreate_client
 
 from app.config import get_settings
 from app.handlers.group import router as group_router
 from app.handlers.private import router as private_router
 from app.handlers.video import router as video_router
 from app.handlers.fallback import router as fallback_router
+from app.handlers.service import router as service_router
 from app.services.users import UserService
 from app.services.managers import ManagerService
 from app.services.courses import CourseService
@@ -52,6 +53,7 @@ async def main():
     dp = Dispatcher(storage=MemoryStorage())
 
     # Роутеры
+    dp.include_router(service_router)
     dp.include_router(group_router)
     dp.include_router(private_router)
     dp.include_router(video_router)
