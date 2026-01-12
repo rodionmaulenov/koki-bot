@@ -116,9 +116,8 @@ async def send_alerts():
             continue
 
         # Есть ли видео сегодня?
-        current_day = course.get("current_day", 1)
-        existing_log = await intake_logs_service.get_by_course_and_day(course_id, current_day)
-        if existing_log:
+        has_video_today = await intake_logs_service.has_log_today(course_id)
+        if has_video_today:
             continue
 
         # Получаем telegram_id
@@ -185,8 +184,8 @@ async def send_refusals():
         # Прошло 2 часа без видео?
         intake_time = course.get("intake_time", "")[:5]
         if time_from <= intake_time <= time_to:
-            existing_log = await intake_logs_service.get_by_course_and_day(course_id, current_day)
-            if not existing_log:
+            has_video_today = await intake_logs_service.has_log_today(course_id)
+            if not has_video_today:
                 refusal_reason = "missed"
                 text = templates.REFUSAL_MISSED
 
@@ -217,7 +216,7 @@ async def send_refusals():
                 topic_id=topic_id,
                 girl_name=user.get("name", ""),
                 manager_name=manager_name,
-                completed_days=current_day,
+                completed_days=current_day - 1,
                 total_days=total_days,
                 status="refused",
             )

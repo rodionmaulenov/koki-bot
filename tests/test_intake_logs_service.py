@@ -66,3 +66,30 @@ class TestIntakeLogsService:
         await service.update_status(course_id=1, day=5, status="taken")
 
         chain.update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_has_log_today_found(self, mock_supabase):
+        """Находит intake_log созданный сегодня."""
+        from app.services.intake_logs import IntakeLogsService
+
+        chain = create_supabase_chain([{"id": 1}])
+        mock_supabase.table = MagicMock(return_value=chain)
+
+        service = IntakeLogsService(mock_supabase)
+        result = await service.has_log_today(course_id=1)
+
+        assert result is True
+        chain.gte.assert_called()  # Проверяем что фильтр по дате вызван
+
+    @pytest.mark.asyncio
+    async def test_has_log_today_not_found(self, mock_supabase):
+        """Возвращает False если сегодня intake_log нет."""
+        from app.services.intake_logs import IntakeLogsService
+
+        chain = create_supabase_chain([])
+        mock_supabase.table = MagicMock(return_value=chain)
+
+        service = IntakeLogsService(mock_supabase)
+        result = await service.has_log_today(course_id=999)
+
+        assert result is False

@@ -326,6 +326,69 @@ class TestSendRefusals:
         await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
         await supabase.table("courses").delete().eq("id", course_id).execute()
 
+    @pytest.mark.asyncio
+    async def test_no_refusal_if_video_sent_day_incremented(
+            self,
+            supabase,
+            redis,
+            mock_bot,
+            test_user_with_telegram,
+            intake_logs_service,
+    ):
+        """НЕ завершает программу если видео отправлено (даже если current_day уже увеличился).
+
+        Это тест на баг: после принятия видео current_day увеличивается с 1 на 2,
+        но send_refusals не должен искать intake_log для day=2 и отказывать.
+        """
+        from app.workers.tasks import send_refusals
+
+        now = get_tashkent_now()
+        # intake_time было 2 часа назад
+        intake_minutes = now.hour * 60 + now.minute - 120
+        if intake_minutes < 0:
+            intake_minutes += 24 * 60
+        intake_hour = intake_minutes // 60
+        intake_minute = intake_minutes % 60
+        intake_time = f"{intake_hour:02d}:{intake_minute:02d}"
+        today = now.date().isoformat()
+
+        result = await supabase.table("courses").insert({
+            "user_id": test_user_with_telegram["id"],
+            "invite_code": "test_no_refusal_day_inc",
+            "status": "active",
+            "start_date": today,
+            "intake_time": intake_time,
+            "current_day": 2,  # День УЖЕ увеличился после принятия видео!
+            "late_count": 0,
+        }).execute()
+
+        course_id = result.data[0]["id"]
+
+        # Видео было отправлено сегодня для day=1 (до увеличения current_day)
+        await intake_logs_service.create(
+            course_id=course_id,
+            day=1,  # Записано для дня 1
+            status="taken",
+            video_file_id="test_video",
+        )
+
+        with patch("app.workers.tasks.bot", mock_bot), \
+                patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
+                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+            await send_refusals()
+
+        # Курс НЕ должен быть завершён — видео было сегодня!
+        updated = await supabase.table("courses") \
+            .select("status") \
+            .eq("id", course_id) \
+            .single() \
+            .execute()
+        assert updated.data["status"] == "active"  # Остаётся active!
+
+        # Cleanup
+        await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
+        await supabase.table("courses").delete().eq("id", course_id).execute()
+
 
 class TestCleanupExpiredLinks:
     """Тесты для cleanup_expired_links."""

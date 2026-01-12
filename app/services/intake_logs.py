@@ -61,3 +61,23 @@ class IntakeLogsService:
             .eq("course_id", course_id) \
             .eq("day", day) \
             .execute()
+
+    async def has_log_today(self, course_id: int) -> bool:
+        """Проверяет, есть ли intake_log сегодня (по Ташкентскому времени)."""
+        from datetime import timezone
+        from app.utils.time_utils import get_tashkent_now
+
+        # Полночь сегодня по Ташкенту → в UTC
+        tashkent_midnight = get_tashkent_now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        utc_start = tashkent_midnight.astimezone(timezone.utc).isoformat()
+
+        result = await self.supabase.table("intake_logs") \
+            .select("id") \
+            .eq("course_id", course_id) \
+            .gte("created_at", utc_start) \
+            .limit(1) \
+            .execute()
+
+        return bool(result.data)

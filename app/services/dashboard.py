@@ -151,7 +151,7 @@ class DashboardService:
             by_manager[manager_name].append({
                 "name": user.get("name", "—"),
                 "topic_id": user.get("topic_id"),
-                "current_day": course.get("current_day", 1),
+                "completed_days": course.get("current_day", 1) - 1,
                 "total_days": total_days,
                 "intake_time": self._format_time(course.get("intake_time")),
                 "icon": icon,
@@ -160,10 +160,10 @@ class DashboardService:
         # Формируем текст
         for manager_name, girls in sorted(by_manager.items()):
             lines.append(f"👩‍💼 {manager_name}")
-            for girl in sorted(girls, key=lambda x: x["current_day"], reverse=True):
+            for girl in sorted(girls, key=lambda x: x["completed_days"], reverse=True):
                 name_link = self._make_topic_link(girl["topic_id"], girl["name"])
                 lines.append(
-                    f"   {girl['icon']} {name_link} — {girl['current_day']}/{girl['total_days']}, {girl['intake_time']}"
+                    f"   {girl['icon']} {name_link} — {girl['completed_days']}/{girl['total_days']}, ..."
                 )
 
         return lines
