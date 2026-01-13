@@ -109,3 +109,48 @@ class CourseService:
             .update({"status": "expired"}) \
             .eq("id", course_id) \
             .execute()
+
+    async def get_active_by_intake_time(
+            self,
+            today: str,
+            time_from: str,
+            time_to: str,
+    ) -> list[dict]:
+        """Получить активные курсы с intake_time в диапазоне."""
+        result = await self.supabase.table("courses") \
+            .select(
+            "id, user_id, current_day, late_count, intake_time, total_days, cycle_day, start_date, registration_message_id") \
+            .eq("status", "active") \
+            .lte("start_date", today) \
+            .gte("intake_time", time_from) \
+            .lte("intake_time", time_to) \
+            .execute()
+
+        return result.data or []
+
+    async def get_expired_setup(self, threshold: str) -> list[dict]:
+        """Получить курсы в статусе setup с неиспользованными ссылками старше threshold."""
+        result = await self.supabase.table("courses") \
+            .select("id, user_id") \
+            .eq("status", "setup") \
+            .eq("invite_used", False) \
+            .lt("created_at", threshold) \
+            .execute()
+
+        return result.data or []
+
+    async def delete(self, course_id: int) -> None:
+        """Удалить курс."""
+        await self.supabase.table("courses") \
+            .delete() \
+            .eq("id", course_id) \
+            .execute()
+
+    async def count_by_user_id(self, user_id: int) -> int:
+        """Подсчитать количество курсов у пользователя."""
+        result = await self.supabase.table("courses") \
+            .select("id") \
+            .eq("user_id", user_id) \
+            .execute()
+
+        return len(result.data) if result.data else 0

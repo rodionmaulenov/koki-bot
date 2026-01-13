@@ -285,24 +285,56 @@ async def verify_ok_callback(
 
     new_day = day + 1
     total_days = course.get("total_days") or 21
+    topic_id = user.get("topic_id")
+    manager = await manager_service.get_by_id(user["manager_id"])
+    manager_name = manager.get("name", "") if manager else ""
 
     if new_day > total_days:
+        # Курс завершён
         await course_service.update(course_id=course_id, status="completed", current_day=total_days)
+
+        # Закрываем топик с полной последовательностью
+        if topic_id:
+            await topic_service.rename_topic_on_close(
+                topic_id=topic_id,
+                girl_name=user.get("name", ""),
+                manager_name=manager_name,
+                completed_days=total_days,
+                total_days=total_days,
+                status="completed",
+            )
+
+            if course.get("registration_message_id"):
+                await topic_service.remove_registration_buttons(
+                    message_id=course["registration_message_id"],
+                    cycle_day=course.get("cycle_day", 1),
+                    intake_time=course.get("intake_time", ""),
+                    start_date=format_date(course.get("start_date", "")),
+                )
+
+            await topic_service.send_closure_message(
+                topic_id=topic_id,
+                status="completed",
+                reason="",
+            )
+
+            await topic_service.close_topic(topic_id)
+
+        await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
     else:
+        # Курс продолжается
         await course_service.update(course_id=course_id, current_day=new_day)
 
-    topic_id = user.get("topic_id")
-    if topic_id:
-        manager = await manager_service.get_by_id(user["manager_id"])
-        await topic_service.update_progress(
-            topic_id=topic_id,
-            girl_name=user.get("name", ""),
-            manager_name=manager.get("name", "") if manager else "",
-            completed_days=day,
-            total_days=total_days,
-        )
+        if topic_id:
+            await topic_service.update_progress(
+                topic_id=topic_id,
+                girl_name=user.get("name", ""),
+                manager_name=manager_name,
+                completed_days=day,
+                total_days=total_days,
+            )
 
-    await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
+        await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
 
 
 @router.callback_query(F.data.startswith("verify_no_"))

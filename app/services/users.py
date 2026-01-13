@@ -101,3 +101,10 @@ class UserService:
                 active_users.append(user)
 
         return active_users
+
+    async def delete(self, user_id: int) -> None:
+        """Удалить пользователя."""
+        await self.supabase.table("users") \
+            .delete() \
+            .eq("id", user_id) \
+            .execute()

@@ -19,6 +19,8 @@ class TestSendReminders:
     ):
         """Отправляет напоминание за 1 час."""
         from app.workers.tasks import _send_reminder
+        from app.services.courses import CourseService
+        from app.services.users import UserService
 
         now = get_tashkent_now()
         intake_hour = (now.hour + 1) % 24
@@ -34,13 +36,16 @@ class TestSendReminders:
             "current_day": 1,
         }).execute()
 
+        course_service = CourseService(supabase)
+        user_service = UserService(supabase)
+
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)):
             from app.utils.time_utils import calculate_time_range_before
             time_from, time_to = calculate_time_range_before(60)
 
             await _send_reminder(
-                supabase, today, time_from, time_to, "1h", templates.REMINDER_1H
+                course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H
             )
 
         # Проверяем что сообщение отправлено
@@ -65,6 +70,8 @@ class TestSendReminders:
     ):
         """Не отправляет повторное напоминание."""
         from app.workers.tasks import _send_reminder
+        from app.services.courses import CourseService
+        from app.services.users import UserService
 
         now = get_tashkent_now()
         intake_hour = (now.hour + 1) % 24
@@ -82,8 +89,11 @@ class TestSendReminders:
 
         course_id = result.data[0]["id"]
 
+        course_service = CourseService(supabase)
+        user_service = UserService(supabase)
+
         # Эмулируем что ключ уже есть в Redis
-        redis.exists = AsyncMock(return_value=True)  # <-- Вот исправление!
+        redis.exists = AsyncMock(return_value=True)
 
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)):
@@ -91,7 +101,7 @@ class TestSendReminders:
             time_from, time_to = calculate_time_range_before(60)
 
             await _send_reminder(
-                supabase, today, time_from, time_to, "1h", templates.REMINDER_1H
+                course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H
             )
 
         # Сообщение НЕ должно быть отправлено
@@ -99,6 +109,7 @@ class TestSendReminders:
 
         # Cleanup
         await supabase.table("courses").delete().eq("id", course_id).execute()
+
 
 class TestSendAlerts:
     """Тесты для send_alerts."""
@@ -138,7 +149,11 @@ class TestSendAlerts:
 
         with patch("app.workers.tasks.bot", mock_bot), \
              patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
-             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+             patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
 
             await send_alerts()
 
@@ -202,7 +217,11 @@ class TestSendAlerts:
 
         with patch("app.workers.tasks.bot", mock_bot), \
              patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
-             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+             patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
 
             await send_alerts()
 
@@ -250,7 +269,12 @@ class TestSendAlerts:
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
                 patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
-                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time):
+                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time), \
+                patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
+
             await send_alerts()
 
         # Alert НЕ должен быть отправлен
@@ -259,60 +283,70 @@ class TestSendAlerts:
         # Cleanup
         await supabase.table("courses").delete().eq("id", course_id).execute()
 
-
-class TestSendRefusals:
-    """Тесты для send_refusals."""
-
     @pytest.mark.asyncio
-    async def test_refusal_3_delays(
-        self,
-        supabase,
-        redis,
-        mock_bot,
-        test_user_with_telegram,
+    async def test_refusal_on_3rd_delay(
+            self,
+            supabase,
+            redis,
+            mock_bot,
+            test_user_with_telegram,
     ):
-        """Завершает программу при 3 опозданиях."""
-        from app.workers.tasks import send_refusals
+        """Завершает программу сразу при 3-м опоздании (не ждёт 2 часа)."""
+        from app.workers.tasks import send_alerts
 
         now = get_tashkent_now()
+        # intake_time было 30 минут назад
+        intake_minutes = now.hour * 60 + now.minute - 30
+        if intake_minutes < 0:
+            intake_minutes += 24 * 60
+        intake_hour = intake_minutes // 60
+        intake_minute = intake_minutes % 60
+        intake_time = f"{intake_hour:02d}:{intake_minute:02d}"
         today = now.date().isoformat()
 
         result = await supabase.table("courses").insert({
             "user_id": test_user_with_telegram["id"],
-            "invite_code": "test_refusal_3delays",
+            "invite_code": "test_3rd_delay_refusal",
             "status": "active",
             "start_date": today,
-            "intake_time": "12:00",
-            "current_day": 4,
-            "late_count": 3,  # 3 опоздания
+            "intake_time": intake_time,
+            "current_day": 3,
+            "late_count": 2,  # Уже 2 опоздания, это будет 3-е
         }).execute()
 
         course_id = result.data[0]["id"]
 
         with patch("app.workers.tasks.bot", mock_bot), \
-             patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
-             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+                patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
+                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+                patch("app.workers.tasks.get_settings") as mock_settings:
 
-            await send_refusals()
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
 
-        # Проверяем что сообщение отправлено девушке (первый вызов)
+            await send_alerts()
+
+        # Проверяем что отправлено сообщение об отказе (не alert!)
         mock_bot.send_message.assert_called()
-        first_call = mock_bot.send_message.call_args_list[0]
-        assert first_call[1]["text"] == templates.REFUSAL_3_DELAYS
+        call_kwargs = mock_bot.send_message.call_args[1]
+        assert call_kwargs["text"] == templates.REFUSAL_3_DELAYS
 
         # Проверяем что курс завершён
         updated = await supabase.table("courses") \
-            .select("status") \
+            .select("status, late_count") \
             .eq("id", course_id) \
             .single() \
             .execute()
         assert updated.data["status"] == "refused"
+        assert updated.data["late_count"] == 3
 
         # Cleanup
-        key = f"sent:{course_id}:{today}:refusal_3delays"
-        await redis.delete(key)
         await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
         await supabase.table("courses").delete().eq("id", course_id).execute()
+
+
+class TestSendRefusals:
+    """Тесты для send_refusals (только пропуск 2+ часов)."""
 
     @pytest.mark.asyncio
     async def test_refusal_missed_2h(
@@ -349,14 +383,18 @@ class TestSendRefusals:
 
         with patch("app.workers.tasks.bot", mock_bot), \
              patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
-             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+             patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+             patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
 
             await send_refusals()
 
-        # Проверяем что сообщение отправлено девушке (первый вызов)
+        # Проверяем что сообщение отправлено девушке
         mock_bot.send_message.assert_called()
-        first_call = mock_bot.send_message.call_args_list[0]
-        assert first_call[1]["text"] == templates.REFUSAL_MISSED
+        call_kwargs = mock_bot.send_message.call_args[1]
+        assert call_kwargs["text"] == templates.REFUSAL_MISSED
 
         # Проверяем что курс завершён
         updated = await supabase.table("courses") \
@@ -420,7 +458,12 @@ class TestSendRefusals:
 
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
-                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)):
+                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+                patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
+
             await send_refusals()
 
         # Курс НЕ должен быть завершён — видео было сегодня!
@@ -472,7 +515,12 @@ class TestSendRefusals:
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
                 patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
-                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time):
+                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time), \
+                patch("app.workers.tasks.get_settings") as mock_settings:
+
+            mock_settings.return_value.kok_group_id = -1001234567890
+            mock_settings.return_value.general_thread_id = 0
+
             await send_refusals()
 
         # Курс должен остаться active

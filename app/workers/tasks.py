@@ -43,28 +43,33 @@ async def mark_sent(course_id: int, reminder_type: str) -> None:
 async def send_reminders():
     """Отправляет напоминания за 60 и 10 минут до приёма."""
     supabase = await get_supabase()
+    course_service = CourseService(supabase)
+    user_service = UserService(supabase)
+
     today = get_tashkent_now().date().isoformat()
 
     # Напоминание за 60 минут
     time_from, time_to = calculate_time_range_before(60)
-    await _send_reminder(supabase, today, time_from, time_to, "1h", templates.REMINDER_1H)
+    await _send_reminder(course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H)
 
     # Напоминание за 10 минут
     time_from, time_to = calculate_time_range_before(10)
-    await _send_reminder(supabase, today, time_from, time_to, "10min", templates.REMINDER_10MIN)
+    await _send_reminder(course_service, user_service, today, time_from, time_to, "10min", templates.REMINDER_10MIN)
 
 
-async def _send_reminder(supabase, today: str, time_from: str, time_to: str, reminder_type: str, text: str):
+async def _send_reminder(
+    course_service: CourseService,
+    user_service: UserService,
+    today: str,
+    time_from: str,
+    time_to: str,
+    reminder_type: str,
+    text: str,
+):
     """Отправляет напоминания для курсов в указанном диапазоне времени."""
-    result = await supabase.table("courses") \
-        .select("id, user_id, intake_time") \
-        .eq("status", "active") \
-        .lte("start_date", today) \
-        .gte("intake_time", time_from) \
-        .lte("intake_time", time_to) \
-        .execute()
+    courses = await course_service.get_active_by_intake_time(today, time_from, time_to)
 
-    for course in result.data or []:
+    for course in courses:
         course_id = course["id"]
 
         # Уже отправляли?
@@ -72,13 +77,7 @@ async def _send_reminder(supabase, today: str, time_from: str, time_to: str, rem
             continue
 
         # Получаем telegram_id
-        user = await supabase.table("users") \
-            .select("telegram_id") \
-            .eq("id", course["user_id"]) \
-            .single() \
-            .execute()
-
-        telegram_id = user.data.get("telegram_id") if user.data else None
+        telegram_id = await user_service.get_telegram_id(course["user_id"])
         if not telegram_id:
             continue
 
@@ -93,25 +92,29 @@ async def _send_reminder(supabase, today: str, time_from: str, time_to: str, rem
 
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])
 async def send_alerts():
-    """Отправляет предупреждения через 30 минут после пропуска."""
+    """Отправляет предупреждения через 30 минут после пропуска.
+    Если это 3-е опоздание — сразу завершает программу.
+    """
+    settings = get_settings()
     supabase = await get_supabase()
-    intake_logs_service = IntakeLogsService(supabase)
-    today = get_tashkent_now().date().isoformat()
 
+    course_service = CourseService(supabase)
+    user_service = UserService(supabase)
+    manager_service = ManagerService(supabase)
+    intake_logs_service = IntakeLogsService(supabase)
+    dashboard_service = DashboardService(supabase, settings.kok_group_id)
+    topic_service = TopicService(bot, settings.kok_group_id)
+
+    today = get_tashkent_now().date().isoformat()
     time_from, time_to = calculate_time_range_after(30)
 
-    result = await supabase.table("courses") \
-        .select("id, user_id, current_day, late_count, intake_time") \
-        .eq("status", "active") \
-        .lte("start_date", today) \
-        .gte("intake_time", time_from) \
-        .lte("intake_time", time_to) \
-        .execute()
+    courses = await course_service.get_active_by_intake_time(today, time_from, time_to)
+    any_refusal = False
 
-    for course in result.data or []:
+    for course in courses:
         course_id = course["id"]
 
-        # Уже отправляли?
+        # Уже отправляли alert?
         if await was_sent(course_id, "alert"):
             continue
 
@@ -127,36 +130,92 @@ async def send_alerts():
         if has_video_today:
             continue
 
-        # Получаем telegram_id
-        user = await supabase.table("users") \
-            .select("telegram_id") \
-            .eq("id", course["user_id"]) \
-            .single() \
-            .execute()
+        # Получаем user через сервис
+        user_data = await user_service.get_by_id(course["user_id"])
+        if not user_data:
+            continue
 
-        telegram_id = user.data.get("telegram_id") if user.data else None
+        telegram_id = user_data.get("telegram_id")
         if not telegram_id:
             continue
 
-        # Отправляем alert
+        # Увеличиваем счётчик опозданий через сервис
+        late_count = course.get("late_count", 0) + 1
+        await course_service.update(course_id, late_count=late_count)
+
+        await mark_sent(course_id, "alert")
+
+        # Если 3-е опоздание — сразу завершаем программу
+        if late_count >= 3:
+            current_day = course.get("current_day", 1)
+            total_days = course.get("total_days") or 21
+
+            await course_service.set_refused(course_id)
+
+            # Закрываем топик
+            topic_id = user_data.get("topic_id")
+            if topic_id:
+                manager = await manager_service.get_by_id(user_data.get("manager_id"))
+                manager_name = manager.get("name", "") if manager else ""
+
+                await topic_service.rename_topic_on_close(
+                    topic_id=topic_id,
+                    girl_name=user_data.get("name", ""),
+                    manager_name=manager_name,
+                    completed_days=current_day - 1,
+                    total_days=total_days,
+                    status="refused",
+                )
+
+                if course.get("registration_message_id"):
+                    await topic_service.remove_registration_buttons(
+                        message_id=course["registration_message_id"],
+                        cycle_day=course.get("cycle_day", 1),
+                        intake_time=course.get("intake_time", ""),
+                        start_date=format_date(course.get("start_date", "")),
+                    )
+
+                await topic_service.send_closure_message(
+                    topic_id=topic_id,
+                    status="refused",
+                    reason=templates.REFUSAL_REASON_3_DELAYS,
+                )
+
+                await topic_service.close_topic(topic_id)
+
+            # Записываем в intake_logs
+            await intake_logs_service.create(
+                course_id=course_id,
+                day=current_day,
+                status="missed",
+                video_file_id="",
+            )
+
+            # Отправляем сообщение девушке
+            try:
+                await bot.send_message(chat_id=telegram_id, text=templates.REFUSAL_3_DELAYS)
+                print(f"🚫 Refusal (3delays) → {telegram_id}")
+                any_refusal = True
+            except Exception as e:
+                print(f"❌ Refusal message failed: {e}")
+
+            continue
+
+        # Иначе просто отправляем alert
         try:
             await bot.send_message(chat_id=telegram_id, text=templates.ALERT_30MIN)
-            await mark_sent(course_id, "alert")
-
-            # Увеличиваем счётчик опозданий
-            late_count = course.get("late_count", 0) + 1
-            await supabase.table("courses") \
-                .update({"late_count": late_count}) \
-                .eq("id", course_id) \
-                .execute()
-
             print(f"🚨 Alert → {telegram_id}, late_count={late_count}")
         except Exception as e:
             print(f"❌ Alert failed: {e}")
 
+    # Обновляем дашборд если были отказы
+    if any_refusal:
+        await dashboard_service.update_dashboard(bot, settings.general_thread_id)
+
+
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])
 async def send_refusals():
-    """Завершает программу при 3 опозданиях или пропуске >2 часов."""
+    """Завершает программу при пропуске более 2 часов."""
     settings = get_settings()
     supabase = await get_supabase()
 
@@ -170,7 +229,7 @@ async def send_refusals():
     today = get_tashkent_now().date().isoformat()
     time_from, time_to = calculate_time_range_after(120)
 
-    courses = await course_service.get_active_started(today)
+    courses = await course_service.get_active_by_intake_time(today, time_from, time_to)
     any_refusal = False
 
     for course in courses:
@@ -178,34 +237,20 @@ async def send_refusals():
         current_day = course.get("current_day", 1)
         total_days = course.get("total_days") or 21
 
-        # Определяем причину отказа
-        refusal_reason = None
-        text = None
-
-        # 3 опоздания подряд?
-        if course.get("late_count", 0) >= 3:
-            refusal_reason = "3delays"
-            text = templates.REFUSAL_3_DELAYS
-
-        # Прошло 2 часа без видео?
+        # Проверяем что текущее время больше intake_time (не ночной переход)
         intake_time = course.get("intake_time", "")[:5]
-        if time_from <= intake_time <= time_to:
-            # Проверяем что текущее время больше intake_time (не ночной переход)
-            now = get_tashkent_now()
-            current_time = f"{now.hour:02d}:{now.minute:02d}"
-            if current_time < intake_time:
-                continue
+        now = get_tashkent_now()
+        current_time = f"{now.hour:02d}:{now.minute:02d}"
+        if current_time < intake_time:
+            continue
 
-            has_video_today = await intake_logs_service.has_log_today(course_id)
-            if not has_video_today:
-                refusal_reason = "missed"
-                text = templates.REFUSAL_MISSED
-
-        if not refusal_reason:
+        # Есть ли видео сегодня?
+        has_video_today = await intake_logs_service.has_log_today(course_id)
+        if has_video_today:
             continue
 
         # Уже обрабатывали?
-        if await was_sent(course_id, f"refusal_{refusal_reason}"):
+        if await was_sent(course_id, "refusal_missed"):
             continue
 
         # Завершаем курс
@@ -217,12 +262,6 @@ async def send_refusals():
         if topic_id:
             manager = await manager_service.get_by_id(user["manager_id"])
             manager_name = manager.get("name", "") if manager else ""
-
-            # Определяем причину
-            if refusal_reason == "3delays":
-                reason_text = templates.REFUSAL_REASON_3_DELAYS
-            else:
-                reason_text = templates.REFUSAL_REASON_MISSED
 
             await topic_service.rename_topic_on_close(
                 topic_id=topic_id,
@@ -244,7 +283,7 @@ async def send_refusals():
             await topic_service.send_closure_message(
                 topic_id=topic_id,
                 status="refused",
-                reason=reason_text,
+                reason=templates.REFUSAL_REASON_MISSED,
             )
 
             await topic_service.close_topic(topic_id)
@@ -257,14 +296,14 @@ async def send_refusals():
             video_file_id="",
         )
 
-        await mark_sent(course_id, f"refusal_{refusal_reason}")
+        await mark_sent(course_id, "refusal_missed")
 
         # Отправляем сообщение
         telegram_id = await user_service.get_telegram_id(course["user_id"])
         if telegram_id:
             try:
-                await bot.send_message(chat_id=telegram_id, text=text)
-                print(f"🚫 Refusal ({refusal_reason}) → {telegram_id}")
+                await bot.send_message(chat_id=telegram_id, text=templates.REFUSAL_MISSED)
+                print(f"🚫 Refusal (missed) → {telegram_id}")
                 any_refusal = True
             except Exception as e:
                 print(f"❌ Refusal failed: {e}")
@@ -278,37 +317,29 @@ async def send_refusals():
 async def cleanup_expired_links():
     """Удаляет неиспользованные ссылки старше 24 часов."""
     supabase = await get_supabase()
+    course_service = CourseService(supabase)
+    user_service = UserService(supabase)
 
     # 24 часа назад
     now = get_tashkent_now()
     threshold = (now - timedelta(hours=24)).isoformat()
 
     # Находим просроченные курсы
-    result = await supabase.table("courses") \
-        .select("id, user_id") \
-        .eq("status", "setup") \
-        .eq("invite_used", False) \
-        .lt("created_at", threshold) \
-        .execute()
-
+    expired_courses = await course_service.get_expired_setup(threshold)
     deleted_count = 0
 
-    for course in result.data or []:
+    for course in expired_courses:
         course_id = course["id"]
         user_id = course["user_id"]
 
         try:
             # Удаляем course
-            await supabase.table("courses").delete().eq("id", course_id).execute()
+            await course_service.delete(course_id)
 
             # Удаляем user (если нет других курсов)
-            other_courses = await supabase.table("courses") \
-                .select("id") \
-                .eq("user_id", user_id) \
-                .execute()
-
-            if not other_courses.data:
-                await supabase.table("users").delete().eq("id", user_id).execute()
+            other_count = await course_service.count_by_user_id(user_id)
+            if other_count == 0:
+                await user_service.delete(user_id)
 
             deleted_count += 1
         except Exception as e:
@@ -318,11 +349,9 @@ async def cleanup_expired_links():
         print(f"🧹 Cleaned up {deleted_count} expired links")
 
 
-
 @broker.task(schedule=[{"cron": "* * * * *"}])
 async def refresh_dashboard():
     """Обновляет единый дашборд КОК."""
-
     settings = get_settings()
     supabase = await get_supabase()
 

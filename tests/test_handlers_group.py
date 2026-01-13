@@ -1137,3 +1137,145 @@ class TestVerifyNoCallback:
 
         assert log.data["status"] == "missed"
         assert log.data["verified_by"] == "manager"
+
+
+class TestVerifyOkCallback:
+    """Тесты для verify_ok_callback."""
+
+    @pytest.mark.asyncio
+    async def test_verify_ok_updates_progress(
+        self,
+        supabase,
+        mock_bot,
+        test_user_with_telegram,
+        test_active_course,
+        intake_logs_service,
+    ):
+        """Менеджер принимает видео — прогресс обновляется."""
+        from app.handlers.group import verify_ok_callback
+        from app.services.courses import CourseService
+        from app.services.users import UserService
+        from app.services.managers import ManagerService
+        from app.services.topic import TopicService
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Создаём intake_log для day=1
+        await intake_logs_service.create(
+            course_id=test_active_course["id"],
+            day=1,
+            status="pending_review",
+            video_file_id="test_video",
+        )
+
+        course_service = CourseService(supabase)
+        user_service = UserService(supabase)
+        manager_service = ManagerService(supabase)
+        topic_service = TopicService(mock_bot, -1001234567890)
+
+        callback = MagicMock()
+        callback.data = f"verify_ok_{test_active_course['id']}_1"
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.edit_text = AsyncMock()
+
+        await verify_ok_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            intake_logs_service=intake_logs_service,
+            topic_service=topic_service,
+        )
+
+        # Проверяем что current_day увеличился
+        updated = await supabase.table("courses") \
+            .select("current_day, status") \
+            .eq("id", test_active_course["id"]) \
+            .single() \
+            .execute()
+        assert updated.data["current_day"] == 2
+        assert updated.data["status"] == "active"
+
+        # Проверяем что intake_log обновлён
+        log = await intake_logs_service.get_by_course_and_day(test_active_course["id"], 1)
+        assert log["status"] == "taken"
+        assert log["verified_by"] == "manager"
+
+        # Cleanup
+        await supabase.table("intake_logs").delete().eq("course_id", test_active_course["id"]).execute()
+
+    @pytest.mark.asyncio
+    async def test_verify_ok_last_day_closes_topic(
+        self,
+        supabase,
+        mock_bot,
+        test_user_with_telegram,
+        test_manager,
+        intake_logs_service,
+    ):
+        """Менеджер принимает видео последнего дня — топик закрывается."""
+        from app.handlers.group import verify_ok_callback
+        from app.services.courses import CourseService
+        from app.services.users import UserService
+        from app.services.managers import ManagerService
+        from app.services.topic import TopicService
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Создаём курс на последнем дне (day=21, total_days=21)
+        course_result = await supabase.table("courses").insert({
+            "user_id": test_user_with_telegram["id"],
+            "invite_code": "test_last_day_verify",
+            "status": "active",
+            "current_day": 21,
+            "total_days": 21,
+            "cycle_day": 1,
+            "intake_time": "12:00",
+            "start_date": "2026-01-01",
+        }).execute()
+        course_id = course_result.data[0]["id"]
+
+        # Создаём intake_log для day=21
+        await intake_logs_service.create(
+            course_id=course_id,
+            day=21,
+            status="pending_review",
+            video_file_id="test_video",
+        )
+
+        course_service = CourseService(supabase)
+        user_service = UserService(supabase)
+        manager_service = ManagerService(supabase)
+        topic_service = TopicService(mock_bot, -1001234567890)
+
+        callback = MagicMock()
+        callback.data = f"verify_ok_{course_id}_21"
+        callback.answer = AsyncMock()
+        callback.message = MagicMock()
+        callback.message.edit_text = AsyncMock()
+
+        await verify_ok_callback(
+            callback=callback,
+            course_service=course_service,
+            user_service=user_service,
+            manager_service=manager_service,
+            intake_logs_service=intake_logs_service,
+            topic_service=topic_service,
+        )
+
+        # Проверяем что курс завершён
+        updated = await supabase.table("courses") \
+            .select("status, current_day") \
+            .eq("id", course_id) \
+            .single() \
+            .execute()
+        assert updated.data["status"] == "completed"
+        assert updated.data["current_day"] == 21
+
+        # Проверяем что топик закрыт (close_forum_topic вызван)
+        # У test_user_with_telegram должен быть topic_id
+        if test_user_with_telegram.get("topic_id"):
+            mock_bot.close_forum_topic.assert_called()
+
+        # Cleanup
+        await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
+        await supabase.table("courses").delete().eq("id", course_id).execute()
