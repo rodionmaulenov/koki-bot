@@ -115,6 +115,13 @@ async def send_alerts():
         if await was_sent(course_id, "alert"):
             continue
 
+        # Проверяем что текущее время больше intake_time (не ночной переход)
+        intake_time = course.get("intake_time", "")[:5]
+        now = get_tashkent_now()
+        current_time = f"{now.hour:02d}:{now.minute:02d}"
+        if current_time < intake_time:
+            continue
+
         # Есть ли видео сегодня?
         has_video_today = await intake_logs_service.has_log_today(course_id)
         if has_video_today:
@@ -146,7 +153,6 @@ async def send_alerts():
             print(f"🚨 Alert → {telegram_id}, late_count={late_count}")
         except Exception as e:
             print(f"❌ Alert failed: {e}")
-
 
 @broker.task(schedule=[{"cron": "*/5 * * * *"}])
 async def send_refusals():
@@ -184,6 +190,12 @@ async def send_refusals():
         # Прошло 2 часа без видео?
         intake_time = course.get("intake_time", "")[:5]
         if time_from <= intake_time <= time_to:
+            # Проверяем что текущее время больше intake_time (не ночной переход)
+            now = get_tashkent_now()
+            current_time = f"{now.hour:02d}:{now.minute:02d}"
+            if current_time < intake_time:
+                continue
+
             has_video_today = await intake_logs_service.has_log_today(course_id)
             if not has_video_today:
                 refusal_reason = "missed"

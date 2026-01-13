@@ -163,7 +163,7 @@ class DashboardService:
             for girl in sorted(girls, key=lambda x: x["completed_days"], reverse=True):
                 name_link = self._make_topic_link(girl["topic_id"], girl["name"])
                 lines.append(
-                    f"   {girl['icon']} {name_link} — {girl['completed_days']}/{girl['total_days']}, ..."
+                    f"   {girl['icon']} {name_link} — {girl['completed_days']}/{girl['total_days']}, {girl['intake_time']}"
                 )
 
         return lines

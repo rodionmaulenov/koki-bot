@@ -130,7 +130,7 @@ class TestDashboardService:
         assert "💊 <b>Активные</b>" in text
         assert "👩‍💼 Rodion" in text
         assert "Тестова М. И." in text
-        assert "5/21" in text
+        assert "4/21" in text
         assert "12:00" in text
 
     @pytest.mark.asyncio

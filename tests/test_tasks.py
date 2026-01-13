@@ -213,6 +213,52 @@ class TestSendAlerts:
         await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
         await supabase.table("courses").delete().eq("id", course_id).execute()
 
+    @pytest.mark.asyncio
+    async def test_no_alert_after_midnight_for_evening_intake(
+            self,
+            supabase,
+            redis,
+            mock_bot,
+            test_user_with_telegram,
+    ):
+        """НЕ отправляет alert после полуночи для вечернего intake_time.
+
+        Сценарий: сейчас 00:30, intake_time = 22:00.
+        Без проверки бот думает что 22:00 было "сегодня" и прошло 2.5 часа.
+        На самом деле 22:00 ещё не наступило (будет вечером).
+        """
+        from app.workers.tasks import send_alerts
+        from datetime import datetime
+        import pytz
+
+        # Фиксируем время: 00:30 по Ташкенту
+        fixed_time = datetime(2026, 1, 14, 0, 30, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+        today = fixed_time.date().isoformat()
+
+        result = await supabase.table("courses").insert({
+            "user_id": test_user_with_telegram["id"],
+            "invite_code": "test_no_alert_midnight",
+            "status": "active",
+            "start_date": today,
+            "intake_time": "22:00",  # Вечером, ещё не наступило
+            "current_day": 1,
+            "late_count": 0,
+        }).execute()
+
+        course_id = result.data[0]["id"]
+
+        with patch("app.workers.tasks.bot", mock_bot), \
+                patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
+                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time):
+            await send_alerts()
+
+        # Alert НЕ должен быть отправлен
+        mock_bot.send_message.assert_not_called()
+
+        # Cleanup
+        await supabase.table("courses").delete().eq("id", course_id).execute()
+
 
 class TestSendRefusals:
     """Тесты для send_refusals."""
@@ -387,6 +433,57 @@ class TestSendRefusals:
 
         # Cleanup
         await supabase.table("intake_logs").delete().eq("course_id", course_id).execute()
+        await supabase.table("courses").delete().eq("id", course_id).execute()
+
+    @pytest.mark.asyncio
+    async def test_no_refusal_after_midnight_for_evening_intake(
+            self,
+            supabase,
+            redis,
+            mock_bot,
+            test_user_with_telegram,
+    ):
+        """НЕ завершает программу после полуночи для вечернего intake_time.
+
+        Сценарий: сейчас 00:30, intake_time = 22:00.
+        Без проверки бот думает что прошло >2 часов после 22:00.
+        На самом деле 22:00 ещё не наступило.
+        """
+        from app.workers.tasks import send_refusals
+        from datetime import datetime
+        import pytz
+
+        # Фиксируем время: 00:30 по Ташкенту
+        fixed_time = datetime(2026, 1, 14, 0, 30, 0, tzinfo=pytz.timezone("Asia/Tashkent"))
+        today = fixed_time.date().isoformat()
+
+        result = await supabase.table("courses").insert({
+            "user_id": test_user_with_telegram["id"],
+            "invite_code": "test_no_refusal_midnight",
+            "status": "active",
+            "start_date": today,
+            "intake_time": "22:00",  # Вечером, ещё не наступило
+            "current_day": 1,
+            "late_count": 0,
+        }).execute()
+
+        course_id = result.data[0]["id"]
+
+        with patch("app.workers.tasks.bot", mock_bot), \
+                patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)), \
+                patch("app.workers.tasks.get_supabase", AsyncMock(return_value=supabase)), \
+                patch("app.workers.tasks.get_tashkent_now", return_value=fixed_time):
+            await send_refusals()
+
+        # Курс должен остаться active
+        updated = await supabase.table("courses") \
+            .select("status") \
+            .eq("id", course_id) \
+            .single() \
+            .execute()
+        assert updated.data["status"] == "active"
+
+        # Cleanup
         await supabase.table("courses").delete().eq("id", course_id).execute()
 
 
