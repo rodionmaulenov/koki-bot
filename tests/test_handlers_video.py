@@ -433,5 +433,10 @@ class TestVideoHandlerSuccess:
         # Кнопки проверки отправлены
         topic_service.send_review_buttons.assert_called_once()
 
+        # Видео отправлено БЕЗ сообщения "✅ День 1/21"
+        topic_service.send_video.assert_called_once()
+        send_video_call = topic_service.send_video.call_args
+        assert send_video_call.kwargs.get("with_message") is False
+
         # Ответ пользователю
         message.answer.assert_called_once_with(templates.VIDEO_PENDING_REVIEW)

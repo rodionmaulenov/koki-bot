@@ -16,14 +16,14 @@ router.message.filter(F.chat.type == "private")
 
 @router.message(F.video_note | F.video)
 async def video_handler(
-    message: Message,
-    user_service,
-    course_service,
-    intake_logs_service,
-    topic_service,
-    manager_service,
-    gemini_service: GeminiService,
-    bot,
+        message: Message,
+        user_service,
+        course_service,
+        intake_logs_service,
+        topic_service,
+        manager_service,
+        gemini_service: GeminiService,
+        bot,
 ):
     """Девушка отправила видео (кружочек или обычное)."""
 
@@ -117,6 +117,7 @@ async def video_handler(
             video_file_id=file_id,
             day=current_day,
             total_days=total_days,
+            with_message=is_confirmed,  # Только если бот подтвердил
         )
 
         if not is_confirmed:

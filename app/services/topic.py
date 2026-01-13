@@ -112,7 +112,8 @@ class TopicService:
             log_error(f"Failed to send registration info: {e}")
             return None
 
-    async def send_video(self, topic_id: int, video_file_id: str, day: int, total_days: int = 21) -> None:
+    async def send_video(self, topic_id: int, video_file_id: str, day: int = 0, total_days: int = 21,
+                         with_message: bool = True) -> None:
         """Отправляет видео-кружочек в топик."""
         try:
             await self.bot.send_video_note(
@@ -120,11 +121,12 @@ class TopicService:
                 message_thread_id=topic_id,
                 video_note=video_file_id,
             )
-            await self.bot.send_message(
-                chat_id=self.group_chat_id,
-                message_thread_id=topic_id,
-                text=templates.TOPIC_DAY_COMPLETE.format(day=day, total_days=total_days),
-            )
+            if with_message:
+                await self.bot.send_message(
+                    chat_id=self.group_chat_id,
+                    message_thread_id=topic_id,
+                    text=templates.TOPIC_DAY_COMPLETE.format(day=day, total_days=total_days),
+                )
         except TelegramAPIError as e:
             log_error(f"Failed to send video: {e}")
 
