@@ -46,10 +46,12 @@ async def video_handler(
         start_date = date.fromisoformat(start_date_str)
 
         if today < start_date:
-            await message.answer(templates.VIDEO_COURSE_NOT_STARTED)
+            intake_time = course.get("intake_time", "12:00")[:5]
+            await message.answer(templates.VIDEO_COURSE_NOT_STARTED.format(intake_time=intake_time))
             return
 
-        end_date = start_date + timedelta(days=20)
+        total_days = course.get("total_days") or 21
+        end_date = start_date + timedelta(days=total_days - 1)
         if today > end_date:
             await message.answer(templates.VIDEO_COURSE_COMPLETED)
             return

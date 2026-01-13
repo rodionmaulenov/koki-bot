@@ -106,8 +106,9 @@ class DashboardService:
             return lines
 
         # Получаем intake_logs за сегодня
-        utc_now = datetime.now(timezone.utc)
-        utc_today = utc_now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        tashkent_now = get_tashkent_now()
+        tashkent_midnight = tashkent_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        utc_today = tashkent_midnight.astimezone(timezone.utc).isoformat()
 
         today_logs = await self.supabase.table("intake_logs") \
             .select("course_id, status") \

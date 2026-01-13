@@ -160,7 +160,9 @@ class TestVideoHandlerCourseNotStarted:
                 bot=bot,
             )
 
-        message.answer.assert_called_once_with(templates.VIDEO_COURSE_NOT_STARTED)
+        message.answer.assert_called_once()
+        call_text = message.answer.call_args[0][0]
+        assert "завтрашнего дня" in call_text or "Жди" in call_text
 
 
 class TestVideoHandlerOnlyCircles:
@@ -440,3 +442,109 @@ class TestVideoHandlerSuccess:
 
         # Ответ пользователю
         message.answer.assert_called_once_with(templates.VIDEO_PENDING_REVIEW)
+
+class TestVideoHandlerExtendedCourse:
+    """Тесты для продлённых курсов (total_days > 21)."""
+
+    @pytest.mark.asyncio
+    async def test_video_accepted_on_day_22_if_extended(self, mock_video_message, bot):
+        """День 22 принимается если курс продлён до 42 дней."""
+        from app.handlers.video import video_handler
+
+        message = mock_video_message()
+
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1, "topic_id": 123, "manager_id": 1})
+
+        # Курс на 22 дне, продлён до 42
+        start_date = (date.today() - timedelta(days=21)).isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": start_date,
+            "current_day": 22,
+            "total_days": 42,  # Продлён!
+            "intake_time": "12:00",
+        })
+        course_service.update = AsyncMock()
+
+        intake_logs_service = MagicMock()
+        intake_logs_service.get_by_course_and_day = AsyncMock(return_value=None)
+        intake_logs_service.create = AsyncMock()
+
+        topic_service = MagicMock()
+        topic_service.send_video = AsyncMock()
+        topic_service.update_progress = AsyncMock()
+
+        manager_service = MagicMock()
+        manager_service.get_by_id = AsyncMock(return_value={"name": "Test Manager"})
+
+        gemini_service = MagicMock()
+        gemini_service.verify_video = AsyncMock(return_value={
+            "status": "confirmed",
+            "confidence": 95,
+            "reason": "",
+        })
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now, \
+             patch("app.handlers.video.is_too_early", return_value=(False, "")), \
+             patch("app.handlers.video.GeminiService") as mock_gs:
+
+            mock_now.return_value.date.return_value = date.today()
+            mock_gs.download_video = MagicMock()
+            mock_gs.download_video.return_value.__aenter__ = AsyncMock(return_value="/tmp/video.mp4")
+            mock_gs.download_video.return_value.__aexit__ = AsyncMock()
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=intake_logs_service,
+                topic_service=topic_service,
+                manager_service=manager_service,
+                gemini_service=gemini_service,
+                bot=bot,
+            )
+
+        # Видео принято, не заблокировано
+        intake_logs_service.create.assert_called_once()
+        # current_day увеличился до 23
+        course_service.update.assert_called_with(course_id=1, current_day=23)
+
+    @pytest.mark.asyncio
+    async def test_video_blocked_after_extended_course_ends(self, mock_video_message, mock_gemini_service, bot):
+        """День 43 блокируется если курс продлён до 42 дней."""
+        from app.handlers.video import video_handler
+
+        message = mock_video_message()
+
+        user_service = MagicMock()
+        user_service.get_by_telegram_id = AsyncMock(return_value={"id": 1})
+
+        # Курс закончился (день 43, total_days=42)
+        start_date = (date.today() - timedelta(days=42)).isoformat()
+        course_service = MagicMock()
+        course_service.get_active_by_user_id = AsyncMock(return_value={
+            "id": 1,
+            "status": "active",
+            "start_date": start_date,
+            "current_day": 42,
+            "total_days": 42,
+        })
+
+        with patch("app.handlers.video.get_tashkent_now") as mock_now:
+            mock_now.return_value.date.return_value = date.today()
+
+            await video_handler(
+                message=message,
+                user_service=user_service,
+                course_service=course_service,
+                intake_logs_service=MagicMock(),
+                topic_service=MagicMock(),
+                manager_service=MagicMock(),
+                gemini_service=mock_gemini_service,
+                bot=bot,
+            )
+
+        message.answer.assert_called_once_with(templates.VIDEO_COURSE_COMPLETED)

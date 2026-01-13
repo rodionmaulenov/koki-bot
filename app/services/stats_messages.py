@@ -2,6 +2,7 @@
 
 from datetime import datetime
 
+from app.utils.time_utils import get_tashkent_now
 
 class StatsMessagesService:
     """Управляет сообщениями дашбордов в БД."""
@@ -26,7 +27,7 @@ class StatsMessagesService:
             .upsert({
                 "bot_type": self.bot_type,
                 "message_id": message_id,
-                "updated_at": datetime.now().isoformat(),
+                "updated_at": get_tashkent_now().isoformat(),
             }, on_conflict="bot_type") \
             .execute()
 
@@ -35,6 +36,6 @@ class StatsMessagesService:
     async def update_timestamp(self) -> None:
         """Обновить updated_at."""
         await self.supabase.table("stats_messages") \
-            .update({"updated_at": datetime.now().isoformat()}) \
+            .update({"updated_at": get_tashkent_now().isoformat()}) \
             .eq("bot_type", self.bot_type) \
             .execute()

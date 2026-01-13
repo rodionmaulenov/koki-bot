@@ -43,33 +43,29 @@ async def mark_sent(course_id: int, reminder_type: str) -> None:
 async def send_reminders():
     """Отправляет напоминания за 60 и 10 минут до приёма."""
     supabase = await get_supabase()
-    course_service = CourseService(supabase)
-    user_service = UserService(supabase)
 
     today = get_tashkent_now().date().isoformat()
 
     # Напоминание за 60 минут
     time_from, time_to = calculate_time_range_before(60)
-    await _send_reminder(course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H)
+    await _send_reminder(supabase, today, time_from, time_to, "1h", templates.REMINDER_1H)
 
     # Напоминание за 10 минут
     time_from, time_to = calculate_time_range_before(10)
-    await _send_reminder(course_service, user_service, today, time_from, time_to, "10min", templates.REMINDER_10MIN)
+    await _send_reminder(supabase, today, time_from, time_to, "10min", templates.REMINDER_10MIN)
 
 
-async def _send_reminder(
-    course_service: CourseService,
-    user_service: UserService,
-    today: str,
-    time_from: str,
-    time_to: str,
-    reminder_type: str,
-    text: str,
-):
+async def _send_reminder(supabase, today: str, time_from: str, time_to: str, reminder_type: str, text_template: str):
     """Отправляет напоминания для курсов в указанном диапазоне времени."""
-    courses = await course_service.get_active_by_intake_time(today, time_from, time_to)
+    result = await supabase.table("courses") \
+        .select("id, user_id, intake_time") \
+        .eq("status", "active") \
+        .lte("start_date", today) \
+        .gte("intake_time", time_from) \
+        .lte("intake_time", time_to) \
+        .execute()
 
-    for course in courses:
+    for course in result.data or []:
         course_id = course["id"]
 
         # Уже отправляли?
@@ -77,9 +73,21 @@ async def _send_reminder(
             continue
 
         # Получаем telegram_id
-        telegram_id = await user_service.get_telegram_id(course["user_id"])
+        user = await supabase.table("users") \
+            .select("telegram_id") \
+            .eq("id", course["user_id"]) \
+            .single() \
+            .execute()
+
+        telegram_id = user.data.get("telegram_id") if user.data else None
         if not telegram_id:
             continue
+
+        # Форматируем текст с временем
+        intake_time = course.get("intake_time", "")[:5]
+        now = get_tashkent_now()
+        current_time = f"{now.hour:02d}:{now.minute:02d}"
+        text = text_template.format(current_time=current_time, intake_time=intake_time)
 
         # Отправляем
         try:

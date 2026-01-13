@@ -45,14 +45,14 @@ class TestSendReminders:
             time_from, time_to = calculate_time_range_before(60)
 
             await _send_reminder(
-                course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H
+                supabase, today, time_from, time_to, "1h", templates.REMINDER_1H
             )
-
         # Проверяем что сообщение отправлено
         mock_bot.send_message.assert_called_once()
         call_kwargs = mock_bot.send_message.call_args[1]
         assert call_kwargs["chat_id"] == test_user_with_telegram["telegram_id"]
-        assert call_kwargs["text"] == templates.REMINDER_1H
+        assert "Через 1 час" in call_kwargs["text"]
+        assert intake_time in call_kwargs["text"]
 
         # Проверяем что Redis setex был вызван
         redis.setex.assert_called()
@@ -101,9 +101,8 @@ class TestSendReminders:
             time_from, time_to = calculate_time_range_before(60)
 
             await _send_reminder(
-                course_service, user_service, today, time_from, time_to, "1h", templates.REMINDER_1H
+                supabase, today, time_from, time_to, "1h", templates.REMINDER_1H
             )
-
         # Сообщение НЕ должно быть отправлено
         mock_bot.send_message.assert_not_called()
 
