@@ -3,6 +3,7 @@
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 
+from app.utils.format import short_name
 from app.utils.logger import log_error
 from app.utils.time_utils import get_tashkent_now, format_date
 from app import templates
@@ -18,7 +19,7 @@ class TopicService:
     async def create_topic(self, girl_name: str, manager_name: str, total_days: int = 21) -> int | None:
         """Создаёт топик для девушки с иконкой 💊."""
         topic_name = templates.TOPIC_NAME.format(
-            girl_name=girl_name,
+            girl_name=short_name(girl_name),
             manager_name=manager_name,
             completed_days=0,
             total_days=total_days,
@@ -55,7 +56,7 @@ class TopicService:
     ) -> None:
         """Обновляет прогресс в названии топика."""
         topic_name = templates.TOPIC_NAME.format(
-            girl_name=girl_name,
+            girl_name=short_name(girl_name),
             manager_name=manager_name,
             completed_days=completed_days,
             total_days=total_days,
@@ -188,7 +189,7 @@ class TopicService:
         """Переименовывает топик при закрытии и меняет иконку."""
         if status == "completed":
             topic_name = templates.TOPIC_NAME_COMPLETED.format(
-                girl_name=girl_name,
+                girl_name=short_name(girl_name),
                 manager_name=manager_name,
                 completed_days=completed_days,
                 total_days=total_days,
@@ -196,7 +197,7 @@ class TopicService:
             icon_emoji_id = templates.ICON_COMPLETED
         else:
             topic_name = templates.TOPIC_NAME_REFUSED.format(
-                girl_name=girl_name,
+                girl_name=short_name(girl_name),
                 manager_name=manager_name,
                 completed_days=completed_days,
                 total_days=total_days,

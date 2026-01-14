@@ -31,18 +31,6 @@ class TestDashboardService:
         assert dashboard_service._format_time(None) == "—"
         assert dashboard_service._format_time("") == "—"
 
-    def test_short_name_full(self, dashboard_service):
-        """Сокращает полное ФИО."""
-        assert dashboard_service._short_name("Иванова Мария Петровна") == "Иванова М. П."
-
-    def test_short_name_two_parts(self, dashboard_service):
-        """Сокращает имя из двух частей."""
-        assert dashboard_service._short_name("Иванова Мария") == "Иванова М."
-
-    def test_short_name_one_part(self, dashboard_service):
-        """Не сокращает имя из одной части."""
-        assert dashboard_service._short_name("Иванова") == "Иванова"
-
     def test_make_topic_link_with_topic(self, dashboard_service):
         """Создаёт кликабельную ссылку."""
         result = dashboard_service._make_topic_link(123, "Иванова Мария Петровна")

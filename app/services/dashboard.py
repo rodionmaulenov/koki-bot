@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from app.utils.time_utils import get_tashkent_now, MONTHS
 from app.config import get_settings
+from app.utils.format import short_name
 
 # Разделитель секций
 SEPARATOR = "━" * 24
@@ -32,16 +33,6 @@ class DashboardService:
             return "—"
         return time_str[:5]
 
-    @staticmethod
-    def _short_name(full_name: str) -> str:
-        """Сокращает имя: Иванова Мария Петровна → Иванова М. П."""
-        parts = full_name.split()
-        if len(parts) >= 3:
-            return f"{parts[0]} {parts[1][0]}. {parts[2][0]}."
-        elif len(parts) == 2:
-            return f"{parts[0]} {parts[1][0]}."
-        return full_name
-
     def _make_topic_link(self, topic_id: int | None, name: str) -> str:
         """Создаёт кликабельную ссылку на топик в группе КОК."""
         if not topic_id:
@@ -52,7 +43,7 @@ class DashboardService:
         if chat_id.startswith("-100"):
             chat_id = chat_id[4:]
 
-        short = self._short_name(name)
+        short = short_name(name)
         return f'<a href="https://t.me/c/{chat_id}/{topic_id}">{short}</a>'
 
     async def generate_full_dashboard(self) -> str:
@@ -138,11 +129,14 @@ class DashboardService:
 
             # Определяем статус
             course_id = course.get("id")
+            late_count = course.get("late_count", 0)
+            has_risk = late_count >= 2
+
             if course_id in pending_ids:
-                icon = "⏳"
+                icon = "⏳⚠️" if has_risk else "⏳"
             elif course_id in sent_today:
-                icon = "✅"
-            elif course.get("late_count", 0) >= 2:
+                icon = "✅⚠️" if has_risk else "✅"
+            elif has_risk:
                 icon = "⚠️"
             else:
                 icon = "⬜"

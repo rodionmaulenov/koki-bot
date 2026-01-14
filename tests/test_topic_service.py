@@ -22,7 +22,7 @@ class TestTopicServiceCreateTopic:
         service = TopicService(bot=bot, group_chat_id=-1001234567890)
 
         topic_id = await service.create_topic(
-            girl_name="Иванова Мария",
+            girl_name="Иванова Мария Петровна",
             manager_name="Айнура",
         )
 
@@ -33,7 +33,7 @@ class TestTopicServiceCreateTopic:
         call_args = bot.create_forum_topic.call_args
         name = call_args.kwargs["name"]
         assert "/" in name
-        assert "Иванова Мария" in name
+        assert "Иванова М. П." in name
         assert "Айнура" in name
         assert "0/21" in name
 
@@ -353,7 +353,7 @@ class TestTopicServiceRenameOnClose:
 
         await service.rename_topic_on_close(
             topic_id=12345,
-            girl_name="Иванова Мария",
+            girl_name="Иванова Мария Петровна",
             manager_name="Айнура",
             completed_days=21,
             total_days=21,
@@ -365,7 +365,7 @@ class TestTopicServiceRenameOnClose:
         name = call_args.kwargs["name"]
 
         assert "/" in name
-        assert "Иванова Мария" in name
+        assert "Иванова М. П." in name
         assert "Айнура" in name
         assert "21/21" in name
 
@@ -378,7 +378,7 @@ class TestTopicServiceRenameOnClose:
 
         await service.rename_topic_on_close(
             topic_id=12345,
-            girl_name="Петрова Анна",
+            girl_name="Петрова Анна Сергеевна",
             manager_name="Акмарал",
             completed_days=5,
             total_days=21,
@@ -389,7 +389,7 @@ class TestTopicServiceRenameOnClose:
         name = call_args.kwargs["name"]
 
         assert "/" in name
-        assert "Петрова Анна" in name
+        assert "Петрова А. С." in name
         assert "5/21" in name
 
     @pytest.mark.asyncio
