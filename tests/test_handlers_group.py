@@ -1187,6 +1187,7 @@ class TestVerifyOkCallback:
             manager_service=manager_service,
             intake_logs_service=intake_logs_service,
             topic_service=topic_service,
+            bot=mock_bot
         )
 
         # Проверяем что current_day увеличился
@@ -1252,6 +1253,7 @@ class TestVerifyOkCallback:
                 manager_service=manager_service,
                 intake_logs_service=intake_logs_service,
                 topic_service=topic_service,
+                bot=mock_bot
             )
 
             # Проверяем что current_day увеличился
@@ -1333,6 +1335,7 @@ class TestVerifyOkCallback:
                 manager_service=manager_service,
                 intake_logs_service=intake_logs_service,
                 topic_service=topic_service,
+                bot=mock_bot
             )
 
             # Проверяем что курс завершён

@@ -258,6 +258,7 @@ async def verify_ok_callback(
     manager_service,
     intake_logs_service,
     topic_service,
+    bot,
 ):
     """Менеджер принял видео."""
     await callback.answer()
@@ -319,8 +320,6 @@ async def verify_ok_callback(
             )
 
             await topic_service.close_topic(topic_id)
-
-        await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
     else:
         # Курс продолжается
         await course_service.update(course_id=course_id, current_day=new_day)
@@ -334,7 +333,17 @@ async def verify_ok_callback(
                 total_days=total_days,
             )
 
-        await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
+    # Отправляем сообщение девушке
+    if user.get("telegram_id"):
+        try:
+            await bot.send_message(
+                chat_id=user["telegram_id"],
+                text=templates.VIDEO_ACCEPTED_BY_MANAGER.format(day=day, total_days=total_days),
+            )
+        except Exception:
+            pass
+
+    await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
 
 
 @router.callback_query(F.data.startswith("verify_no_"))
@@ -410,7 +419,17 @@ async def verify_no_callback(
 
         await topic_service.close_topic(topic_id)
 
-    await callback.message.edit_text(templates.MANAGER_VIDEO_REJECTED.format(day=day, total_days=total_days))
+        # Отправляем сообщение девушке
+        if user and user.get("telegram_id"):
+            try:
+                await bot.send_message(
+                    chat_id=user["telegram_id"],
+                    text=templates.VIDEO_ACCEPTED_BY_MANAGER.format(day=day, total_days=total_days),
+                )
+            except Exception:
+                pass
+
+        await callback.message.edit_text(templates.MANAGER_VIDEO_APPROVED.format(day=day, total_days=total_days))
 
     # Обновляем дашборд
     dashboard_service = DashboardService(supabase, settings.kok_group_id)

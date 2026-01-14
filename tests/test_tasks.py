@@ -36,9 +36,6 @@ class TestSendReminders:
             "current_day": 1,
         }).execute()
 
-        course_service = CourseService(supabase)
-        user_service = UserService(supabase)
-
         with patch("app.workers.tasks.bot", mock_bot), \
                 patch("app.workers.tasks.get_redis", AsyncMock(return_value=redis)):
             from app.utils.time_utils import calculate_time_range_before
