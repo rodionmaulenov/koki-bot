@@ -139,7 +139,7 @@ class DashboardService:
             elif has_risk:
                 icon = "⚠️"
             else:
-                icon = "⬜"
+                icon = "⬜⚠️" if has_risk else "⬜"
 
             total_days = course.get("total_days") or 21
 
