@@ -70,6 +70,15 @@ class TopicService:
             )
         except TelegramAPIError as e:
             log_error(f"Failed to update topic: {e}")
+            # Debug: отправляем ошибку в топик
+            try:
+                await self.bot.send_message(
+                    chat_id=self.group_chat_id,
+                    message_thread_id=topic_id,
+                    text=f"❌ Ошибка: {e}",
+                )
+            except:
+                pass
 
     async def send_registration_info(
         self,
@@ -84,7 +93,7 @@ class TopicService:
 
         text = templates.TOPIC_REGISTRATION.format(
             cycle_day=cycle_day,
-            intake_time=intake_time,
+            intake_time=intake_time[:5],
             start_date=start_date,
         )
 
