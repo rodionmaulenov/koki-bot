@@ -31,15 +31,6 @@ class Settings(BaseSettings):
     error_topic_chat_id: int | None = None
     error_topic_id: int | None = None
 
-    # WhatsApp Cloud API (optional)
-    whatsapp_access_token: str = ""
-    whatsapp_phone_number_id: str = ""
-    whatsapp_business_account_id: str = ""
-    whatsapp_app_secret: str = ""
-    whatsapp_verify_token: str = ""
-    whatsapp_api_version: str = "v21.0"
-    whatsapp_group_id: str = ""
-
     # Seed data for development mode (optional)
     seed_owner_id: int | None = None
     seed_owner_name: str | None = None

@@ -100,12 +100,6 @@ jobs:
             SENTRY_DSN=${{ secrets.SENTRY_DSN }}
             ERROR_TOPIC_CHAT_ID=${{ secrets.ERROR_TOPIC_CHAT_ID }}
             ERROR_TOPIC_ID=${{ secrets.ERROR_TOPIC_ID }}
-            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
-            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
-            WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }}
-            WHATSAPP_APP_SECRET=${{ secrets.WHATSAPP_APP_SECRET }}
-            WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }}
-            WHATSAPP_GROUP_ID=${{ secrets.WHATSAPP_GROUP_ID }}
             REDIS_URL=redis://redis:6379/0
             ENVEOF
 

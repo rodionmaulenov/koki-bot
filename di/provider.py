@@ -17,7 +17,6 @@ from services.add_service import AddService
 from services.gemini_service import GeminiService
 from services.ocr_service import OCRService
 from services.video_service import VideoService
-from services.whatsapp_client import WhatsAppClient
 from topic_access.service import CommandsMessagesService
 from topic_access.tracked_bot import TrackedBot
 
@@ -152,6 +151,3 @@ class AppProvider(Provider):
     ) -> OCRService:
         return OCRService(gemini=gemini, bot=bot)
 
-    @provide
-    def get_whatsapp_client(self) -> WhatsAppClient:
-        return WhatsAppClient(self._settings)
