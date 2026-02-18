@@ -176,19 +176,18 @@ class TestOnReissueStart:
             assert ReissueTemplates.error_try_later() in alerts[0].data.get("text", "")
             assert _is_alert(alerts[0])
 
-    async def test_no_girls_show_alert_false(self, mocks: MockHolder) -> None:
-        """L42: show_alert=False — explicit, not default. Catches regression to True."""
+    async def test_no_girls_show_alert(self, mocks: MockHolder) -> None:
+        """L42: show_alert=True — popup when no reissuable girls."""
         mocks.manager_repo.get_by_telegram_id.return_value = _manager()
         mocks.add_service.get_reissuable_girls.return_value = []
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp, **_bot_kw()) as bot:
             _seed_menu(bot)
             await bot.click_button(_reissue_start_cb(), MENU_MSG_ID)
-            non_alerts = _non_alert_answers(bot)
-            assert len(non_alerts) == 1
-            assert ReissueTemplates.no_girls() in non_alerts[0].data.get("text", "")
-            assert not _is_alert(non_alerts[0])
-            assert len(_alert_answers(bot)) == 0
+            alerts = _alert_answers(bot)
+            assert len(alerts) == 1
+            assert ReissueTemplates.no_girls() in alerts[0].data.get("text", "")
+            assert _is_alert(alerts[0])
             assert len(_sends(bot)) == 0
 
     async def test_happy_path_sends_list(self, mocks: MockHolder) -> None:

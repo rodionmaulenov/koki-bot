@@ -91,7 +91,7 @@ async def on_clear(
         except Exception:
             pass
     await commands_messages_service.clear_messages()
-    await callback.answer(MenuTemplates.topic_cleared())
+    await callback.answer(MenuTemplates.topic_cleared(), show_alert=True)
 
 
 @router.message(SERVICE_FILTER)

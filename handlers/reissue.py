@@ -39,7 +39,7 @@ async def on_reissue_start(
         return
 
     if not girls:
-        await callback.answer(ReissueTemplates.no_girls(), show_alert=False)
+        await callback.answer(ReissueTemplates.no_girls(), show_alert=True)
         return
 
     await callback.answer()
