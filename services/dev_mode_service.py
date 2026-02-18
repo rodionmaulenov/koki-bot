@@ -43,7 +43,7 @@ class DevModeService:
         logger.info("Cleaning up database (dev mode)...")
 
         # Delete kok tables (order matters: FK dependencies)
-        for table in ("intake_logs", "private_messages", "courses", "documents", "users"):
+        for table in ("intake_logs", "courses", "documents", "users"):
             await (
                 self._supabase.schema("kok")
                 .table(table)

@@ -76,6 +76,7 @@ def _make_manager(**overrides) -> Manager:
         telegram_id=999888777,
         name="Алина",
         is_active=True,
+        role="manager",
         created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=TASHKENT_TZ),
     )
     defaults.update(overrides)

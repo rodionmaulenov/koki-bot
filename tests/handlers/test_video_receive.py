@@ -93,7 +93,7 @@ def _make_video_result(**overrides) -> VideoResult:
 def _make_manager(**overrides) -> Manager:
     defaults = dict(
         id=1, telegram_id=MANAGER_TG_ID, name="Test Manager",
-        is_active=True, created_at=datetime(2025, 1, 1, tzinfo=TASHKENT_TZ),
+        is_active=True, role="manager", created_at=datetime(2025, 1, 1, tzinfo=TASHKENT_TZ),
     )
     defaults.update(overrides)
     return Manager(**defaults)

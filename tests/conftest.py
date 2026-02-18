@@ -160,11 +160,12 @@ async def create_test_manager(
     telegram_id: int = 7172139170,
     name: str = "Test Manager",
     is_active: bool = True,
+    role: str = "manager",
 ) -> Manager:
     """Create a test manager in public.managers."""
     response = await (
         supabase.table("managers")
-        .insert({"telegram_id": telegram_id, "name": name, "is_active": is_active})
+        .insert({"telegram_id": telegram_id, "name": name, "is_active": is_active, "role": role})
         .execute()
     )
     return Manager(**response.data[0])

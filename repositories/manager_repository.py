@@ -11,7 +11,7 @@ class ManagerRepository:
         response = await (
             self._supabase.schema("public")
             .table("managers")
-            .select("id, telegram_id, name, is_active, created_at")
+            .select("id, telegram_id, name, is_active, role, created_at")
             .eq("id", manager_id)
             .limit(1)
             .execute()
@@ -24,7 +24,7 @@ class ManagerRepository:
         response = await (
             self._supabase.schema("public")
             .table("managers")
-            .select("id, telegram_id, name, is_active, created_at")
+            .select("id, telegram_id, name, is_active, role, created_at")
             .eq("telegram_id", telegram_id)
             .limit(1)
             .execute()

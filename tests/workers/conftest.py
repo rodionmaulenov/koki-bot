@@ -32,7 +32,7 @@ def make_user(
 def make_manager(manager_id: int = 10) -> Manager:
     return Manager(
         id=manager_id, telegram_id=777, name="Aliya",
-        is_active=True, created_at=JUN_15,
+        is_active=True, role="manager", created_at=JUN_15,
     )
 
 

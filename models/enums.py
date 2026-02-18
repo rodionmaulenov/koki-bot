@@ -22,6 +22,11 @@ class RemovalReason:
     APPEALABLE = (NO_VIDEO, MAX_STRIKES)
 
 
+class ManagerRole(StrEnum):
+    MANAGER = "manager"
+    ACCOUNTANT = "accountant"
+
+
 class ReissueCategory(StrEnum):
     NOT_STARTED = "not_started"
     IN_PROGRESS = "in_progress"
