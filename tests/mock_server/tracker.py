@@ -65,6 +65,10 @@ class RequestTracker:
         """Get all answerCallbackQuery requests."""
         return self.get_requests_by_method("answerCallbackQuery")
 
+    def get_send_media_group_requests(self) -> list[TrackedRequest]:
+        """Get all sendMediaGroup requests."""
+        return self.get_requests_by_method("sendMediaGroup")
+
     def get_send_photo_requests(self) -> list[TrackedRequest]:
         """Get all sendPhoto requests."""
         return self.get_requests_by_method("sendPhoto")

@@ -26,3 +26,9 @@ class CardResult:
     is_document: bool
     card_number: str | None
     card_holder: str | None
+
+
+@dataclass
+class PaymentReceiptResult:
+    is_document: bool
+    amount: int | None

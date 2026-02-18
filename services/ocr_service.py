@@ -6,7 +6,13 @@ import logging
 from aiogram import Bot
 from google.genai import errors as genai_errors
 
-from models.ocr import CardResult, OCRServerError, PassportResult, ReceiptResult
+from models.ocr import (
+    CardResult,
+    OCRServerError,
+    PassportResult,
+    PaymentReceiptResult,
+    ReceiptResult,
+)
 from services.gemini_service import GeminiService
 from utils.image import preprocess_image
 
@@ -52,6 +58,18 @@ class OCRService:
         image_bytes = await self._download_and_preprocess(file_id)
         return await self._call_gemini(
             self._gemini.process_card, image_bytes, "card", file_id,
+        )
+
+    async def process_payment_receipt(self, file_id: str) -> PaymentReceiptResult | None:
+        """Full payment receipt pipeline: download → preprocess → Gemini Vision.
+
+        Returns PaymentReceiptResult (check is_document for classification).
+        Returns None on unexpected empty response.
+        Raises OCRServerError on API/server errors.
+        """
+        image_bytes = await self._download_and_preprocess(file_id)
+        return await self._call_gemini(
+            self._gemini.process_payment_receipt, image_bytes, "payment_receipt", file_id,
         )
 
     async def _download_and_preprocess(self, file_id: str) -> bytes:

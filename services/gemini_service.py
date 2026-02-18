@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 from google.genai.types import GenerateContentConfig, HttpOptions, HttpRetryOptions
 
-from models.ocr import CardResult, PassportResult, ReceiptResult
+from models.ocr import CardResult, PassportResult, PaymentReceiptResult, ReceiptResult
 from models.video_result import VideoResult
 
 logger = logging.getLogger(__name__)
@@ -102,6 +102,23 @@ _RECEIPT_SCHEMA = {
     "required": ["is_document", "has_kok", "price"],
 }
 
+_PAYMENT_RECEIPT_PROMPT = (
+    "Посмотри на изображение и определи: это чек об оплате (банковский перевод, квитанция, скриншот оплаты)?\n\n"
+    "Если это НЕ чек об оплате (паспорт, карта, аптечный чек, случайное фото) — верни is_document=false, amount=null.\n\n"
+    "Если это чек об оплате — извлеки сумму:\n"
+    "- is_document: true\n"
+    "- amount: сумма перевода в узбекских сумах (целое число), null если не найдена"
+)
+
+_PAYMENT_RECEIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "is_document": {"type": "boolean"},
+        "amount": {"type": "integer", "nullable": True},
+    },
+    "required": ["is_document", "amount"],
+}
+
 
 class GeminiService:
     def __init__(self, api_key: str) -> None:
@@ -166,6 +183,21 @@ class GeminiService:
             is_document=data.get("is_document", False),
             has_kok=data.get("has_kok", False),
             price=data.get("price"),
+        )
+
+    async def process_payment_receipt(self, image_bytes: bytes) -> PaymentReceiptResult:
+        """Classify image and extract payment receipt fields.
+
+        Raises on Gemini API errors (caller handles).
+        """
+        data = await self._generate_vision(
+            image_bytes, _PAYMENT_RECEIPT_PROMPT, _PAYMENT_RECEIPT_SCHEMA,
+        )
+
+        logger.debug("Gemini process_payment_receipt result: %s", data)
+        return PaymentReceiptResult(
+            is_document=data.get("is_document", False),
+            amount=data.get("amount"),
         )
 
     async def process_video(self, video_bytes: bytes, mime_type: str) -> VideoResult:

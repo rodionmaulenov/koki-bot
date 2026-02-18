@@ -9,6 +9,7 @@ import pytest
 from aiogram.fsm.storage.base import StorageKey
 
 from callbacks.menu import MenuAction, MenuCallback
+from callbacks.payment import PaymentCallback
 from handlers.add.passport import EVENING_CUTOFF_HOUR
 from models.course import Course
 from models.enums import CourseStatus
@@ -896,6 +897,144 @@ class TestCardPhoto:
             assert call_kwargs["receipt_file_id"] == "receipt_123"
             assert call_kwargs["receipt_price"] == 50000
             assert call_kwargs["birth_date"] == "01.01.1990"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Accountant notification (after link creation)
+# ══════════════════════════════════════════════════════════════════════════
+
+ACCOUNTANT_TG_ID_1 = 888001
+ACCOUNTANT_TG_ID_2 = 888002
+
+
+def _accountant(telegram_id: int = ACCOUNTANT_TG_ID_1, **ov: Any) -> Manager:
+    d: dict[str, Any] = dict(
+        id=90, telegram_id=telegram_id, name="Accountant",
+        is_active=True, role="accountant",
+        created_at=datetime(2025, 1, 1),
+    )
+    d.update(ov)
+    return Manager(**d)
+
+
+def _media_groups(bot: MockTelegramBot) -> list[TrackedRequest]:
+    return bot._server.tracker.get_send_media_group_requests()
+
+
+class TestAccountantNotification:
+    """6 tests for accountant notification after link creation."""
+
+    def _setup_happy(self, mocks: MockHolder) -> None:
+        mocks.ocr_service.process_card.return_value = _card_result()
+        mocks.manager_repo.get_by_telegram_id.return_value = _manager()
+        mocks.add_service.create_link.return_value = _course(id=42)
+
+    async def test_accountant_receives_media_group(self, mocks: MockHolder) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.return_value = [_accountant()]
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            groups = _media_groups(bot)
+            assert len(groups) == 1
+            media_data = groups[0].data.get("media", [])
+            assert len(media_data) == 3
+            assert media_data[0].get("media") == "passport_123"
+            assert media_data[1].get("media") == "receipt_123"
+
+    async def test_accountant_receives_button_with_course_id(
+        self, mocks: MockHolder,
+    ) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.return_value = [_accountant()]
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            sends = _sends(bot)
+            # Find message sent to accountant (not to group)
+            acc_sends = [
+                s for s in sends
+                if str(s.data.get("chat_id")) == str(ACCOUNTANT_TG_ID_1)
+            ]
+            assert len(acc_sends) == 1
+            markup = acc_sends[0].data.get("reply_markup", {})
+            buttons = markup.get("inline_keyboard", [[]])[0]
+            assert len(buttons) == 1
+            cb_data = buttons[0]["callback_data"]
+            parsed = PaymentCallback.unpack(cb_data)
+            assert parsed.course_id == 42
+
+    async def test_multiple_accountants_all_notified(
+        self, mocks: MockHolder,
+    ) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.return_value = [
+            _accountant(telegram_id=ACCOUNTANT_TG_ID_1),
+            _accountant(telegram_id=ACCOUNTANT_TG_ID_2, id=91),
+        ]
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            groups = _media_groups(bot)
+            assert len(groups) == 2
+            chat_ids = {str(g.data.get("chat_id")) for g in groups}
+            assert str(ACCOUNTANT_TG_ID_1) in chat_ids
+            assert str(ACCOUNTANT_TG_ID_2) in chat_ids
+
+    async def test_no_accountants_skips_notification(
+        self, mocks: MockHolder,
+    ) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.return_value = []
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            # Link still created
+            assert "TESTCODE" in _last_send_text(bot)
+            # No media groups sent
+            assert len(_media_groups(bot)) == 0
+
+    async def test_notification_error_does_not_break_link(
+        self, mocks: MockHolder,
+    ) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.side_effect = Exception("DB error")
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            # Link still created despite notification failure
+            assert "TESTCODE" in _last_send_text(bot)
+            assert await _get_fsm_state(dp) is None
+
+    async def test_caption_contains_card_data(self, mocks: MockHolder) -> None:
+        self._setup_happy(mocks)
+        mocks.manager_repo.get_active_by_role.return_value = [_accountant()]
+        dp = await create_test_dispatcher(mocks)
+        await _set_fsm(dp, AddStates.waiting_card, _CARD_FSM)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_bot_msg(bot)
+            await bot.send_photo()
+
+            groups = _media_groups(bot)
+            media_data = groups[0].data.get("media", [])
+            caption = media_data[0].get("caption", "")
+            assert "Ivanova Anna" in caption
+            assert "8600 1234 5678 9012" in caption
 
 
 # ══════════════════════════════════════════════════════════════════════════

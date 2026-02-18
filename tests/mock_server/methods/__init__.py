@@ -16,6 +16,7 @@ from tests.mock_server.methods.media import (
     handle_edit_message_caption,
     handle_edit_message_media,
     handle_send_document,
+    handle_send_media_group,
     handle_send_photo,
     handle_send_video,
     handle_send_video_note,
@@ -42,6 +43,7 @@ __all__ = [
     "handle_send_video",
     "handle_send_video_note",
     "handle_send_document",
+    "handle_send_media_group",
     "handle_edit_message_caption",
     "handle_edit_message_media",
     # Forum topics

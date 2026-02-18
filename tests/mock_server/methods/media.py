@@ -2,8 +2,9 @@
 Media-related API method handlers.
 
 Handles: sendPhoto, sendVideo, sendVideoNote, sendDocument,
-         editMessageCaption, editMessageMedia
+         sendMediaGroup, editMessageCaption, editMessageMedia
 """
+import json
 import logging
 import time
 from typing import Any
@@ -143,6 +144,63 @@ def handle_send_photo(
     message["photo"] = photo_sizes
 
     return make_ok_response(message)
+
+
+def handle_send_media_group(
+    data: dict[str, Any],
+    chat_state: ChatState,
+) -> dict[str, Any]:
+    """Handle sendMediaGroup API call.
+
+    Returns an array of Message objects (one per media item).
+    """
+    chat_id = _safe_int(data.get("chat_id"))
+    message_thread_id = _safe_int(data.get("message_thread_id"))
+
+    if chat_id is None:
+        return make_error_response("Bad Request: chat_id is required")
+
+    media = data.get("media", [])
+    if isinstance(media, str):
+        try:
+            media = json.loads(media)
+        except json.JSONDecodeError:
+            media = []
+
+    if not media or len(media) < 2:
+        return make_error_response(
+            "Bad Request: media must contain 2-10 items", error_code=400,
+        )
+
+    media_group_id = str(int(time.time()))
+    messages: list[dict[str, Any]] = []
+
+    for i, item in enumerate(media):
+        caption = item.get("caption")
+        parse_mode = item.get("parse_mode")
+        file_id = item.get("media", f"photo_{int(time.time())}_{i}")
+        photo_sizes = _make_photo_sizes(file_id)
+
+        stored = chat_state.add_message(
+            chat_id=chat_id,
+            from_user_id=1234567890,
+            is_bot=True,
+            text=caption,
+            photo=photo_sizes,
+            message_thread_id=message_thread_id,
+        )
+
+        message = _build_media_message(
+            stored.message_id, stored.created_at, chat_id,
+            message_thread_id, caption,
+        )
+        message["photo"] = photo_sizes
+        message["media_group_id"] = media_group_id
+        if parse_mode:
+            message["caption_entities"] = []
+        messages.append(message)
+
+    return make_ok_response(messages)
 
 
 def handle_send_video(

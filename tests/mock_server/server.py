@@ -27,6 +27,7 @@ from tests.mock_server.methods import (
     handle_pin_chat_message,
     handle_reopen_forum_topic,
     handle_send_document,
+    handle_send_media_group,
     handle_send_message,
     handle_send_photo,
     handle_send_video,
@@ -130,6 +131,7 @@ class FakeTelegramServer:
             "sendPhoto": lambda d: handle_send_photo(d, chat_state),
             "sendVideo": lambda d: handle_send_video(d, chat_state),
             "sendVideoNote": lambda d: handle_send_video_note(d, chat_state),
+            "sendMediaGroup": lambda d: handle_send_media_group(d, chat_state),
             "sendDocument": lambda d: handle_send_document(d, chat_state),
             # Forum topics
             "createForumTopic": lambda d: handle_create_forum_topic(d, chat_state),

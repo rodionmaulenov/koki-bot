@@ -25,6 +25,7 @@ from workers.scheduler import start_scheduler
 from handlers.add import router as add_router
 from handlers.menu import ensure_menu, router as menu_router
 from handlers.onboarding import router as onboarding_router
+from handlers.payment import router as payment_router
 from handlers.reissue import router as reissue_router
 from handlers.video import router as video_router
 from repositories.commands_messages_repository import CommandsMessagesRepository
@@ -82,6 +83,7 @@ async def main() -> None:
     dp = Dispatcher(storage=storage)
 
     dp.include_router(onboarding_router)
+    dp.include_router(payment_router)
     dp.include_router(video_router)
     dp.include_router(add_router)
     dp.include_router(reissue_router)

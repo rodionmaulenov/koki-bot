@@ -45,15 +45,19 @@ from supabase import AsyncClient, acreate_client
 
 from config import Settings, get_settings
 from models.course import Course
+from models.document import Document
 from models.intake_log import IntakeLog
 from models.manager import Manager
 from models.owner import Owner
+from models.payment_receipt import PaymentReceipt
 from models.user import User
 from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.course_repository import CourseRepository
+from repositories.document_repository import DocumentRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.owner_repository import OwnerRepository
+from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 
 
@@ -91,6 +95,7 @@ async def redis(settings: Settings):
 async def delete_all(supabase: AsyncClient) -> None:
     """Delete all test data from database."""
     # kok schema (order matters: FK dependencies)
+    await supabase.schema("kok").table("payment_receipts").delete().neq("id", 0).execute()
     await supabase.schema("kok").table("intake_logs").delete().neq("id", 0).execute()
     await supabase.schema("kok").table("courses").delete().neq("id", 0).execute()
     await supabase.schema("kok").table("documents").delete().neq("id", 0).execute()
@@ -141,6 +146,16 @@ def manager_repository(supabase: AsyncClient) -> ManagerRepository:
 @pytest.fixture
 def owner_repository(supabase: AsyncClient) -> OwnerRepository:
     return OwnerRepository(supabase)
+
+
+@pytest.fixture
+def document_repository(supabase: AsyncClient) -> DocumentRepository:
+    return DocumentRepository(supabase)
+
+
+@pytest.fixture
+def payment_receipt_repository(supabase: AsyncClient) -> PaymentReceiptRepository:
+    return PaymentReceiptRepository(supabase)
 
 
 @pytest.fixture
@@ -294,3 +309,55 @@ async def create_test_intake_log(
         supabase.schema("kok").table("intake_logs").insert(data).execute()
     )
     return IntakeLog(**response.data[0])
+
+
+async def create_test_document(
+    supabase: AsyncClient,
+    user_id: int,
+    manager_id: int,
+    passport_file_id: str | None = "test_passport_file_id",
+    receipt_file_id: str | None = "test_receipt_file_id",
+    receipt_price: int | None = 150000,
+    card_file_id: str | None = "test_card_file_id",
+    card_number: str | None = "8600123456789012",
+    card_holder_name: str | None = "IVANOVA MARINA",
+) -> Document:
+    """Create a test document in kok.documents."""
+    data: dict = {"user_id": user_id, "manager_id": manager_id}
+    if passport_file_id is not None:
+        data["passport_file_id"] = passport_file_id
+    if receipt_file_id is not None:
+        data["receipt_file_id"] = receipt_file_id
+    if receipt_price is not None:
+        data["receipt_price"] = receipt_price
+    if card_file_id is not None:
+        data["card_file_id"] = card_file_id
+    if card_number is not None:
+        data["card_number"] = card_number
+    if card_holder_name is not None:
+        data["card_holder_name"] = card_holder_name
+    response = await (
+        supabase.schema("kok").table("documents").insert(data).execute()
+    )
+    return Document(**response.data[0])
+
+
+async def create_test_payment_receipt(
+    supabase: AsyncClient,
+    course_id: int,
+    accountant_id: int,
+    receipt_file_id: str = "test_payment_receipt_file_id",
+    amount: int | None = 150000,
+) -> PaymentReceipt:
+    """Create a test payment receipt in kok.payment_receipts."""
+    data: dict = {
+        "course_id": course_id,
+        "accountant_id": accountant_id,
+        "receipt_file_id": receipt_file_id,
+    }
+    if amount is not None:
+        data["amount"] = amount
+    response = await (
+        supabase.schema("kok").table("payment_receipts").insert(data).execute()
+    )
+    return PaymentReceipt(**response.data[0])

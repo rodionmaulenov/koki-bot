@@ -14,6 +14,7 @@ from config import Settings
 from handlers.add import router as add_router
 from handlers.menu import router as menu_router
 from handlers.onboarding import router as onboarding_router
+from handlers.payment import router as payment_router
 from handlers.reissue import router as reissue_router
 from handlers.video import router as video_router
 from repositories.commands_messages_repository import CommandsMessagesRepository
@@ -21,6 +22,7 @@ from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.owner_repository import OwnerRepository
+from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
 from services.gemini_service import GeminiService
@@ -54,6 +56,8 @@ class MockHolder:
         self.course_repo = AsyncMock(spec=CourseRepository)
         self.user_repo = AsyncMock(spec=UserRepository)
         self.manager_repo = AsyncMock(spec=ManagerRepository)
+        self.manager_repo.get_by_telegram_id.return_value = None
+        self.manager_repo.get_active_by_role.return_value = []
         self.owner_repo = AsyncMock(spec=OwnerRepository)
         self.intake_log_repo = AsyncMock(spec=IntakeLogRepository)
         self.commands_messages_repo = AsyncMock(spec=CommandsMessagesRepository)
@@ -62,6 +66,7 @@ class MockHolder:
         self.video_service = AsyncMock(spec=VideoService)
         self.gemini_service = AsyncMock(spec=GeminiService)
         self.ocr_service = AsyncMock(spec=OCRService)
+        self.payment_receipt_repo = AsyncMock(spec=PaymentReceiptRepository)
         self.tracked_bot = AsyncMock(spec=TrackedBot)
 
 
@@ -130,6 +135,10 @@ class TestProvider(Provider):
         return self._m.ocr_service
 
     @provide
+    def payment_receipt_repo(self) -> PaymentReceiptRepository:
+        return self._m.payment_receipt_repo
+
+    @provide
     def tracked_bot(self) -> TrackedBot:
         return self._m.tracked_bot
 
@@ -137,7 +146,7 @@ class TestProvider(Provider):
 # ── Dispatcher factory ───────────────────────────────────────────────────────
 
 
-_TOP_ROUTERS = [onboarding_router, video_router, add_router, reissue_router, menu_router]
+_TOP_ROUTERS = [onboarding_router, payment_router, video_router, add_router, reissue_router, menu_router]
 
 
 async def create_test_dispatcher(mocks: MockHolder) -> Dispatcher:

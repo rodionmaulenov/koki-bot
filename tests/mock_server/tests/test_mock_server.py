@@ -155,6 +155,68 @@ class TestMockServerHttpStatusCodes:
             assert "deleted" in exc_info.value.message
 
 
+class TestSendMediaGroup:
+    """Test sendMediaGroup mock implementation."""
+
+    @pytest.mark.asyncio
+    async def test_send_media_group_returns_messages(
+        self, simple_dispatcher: Dispatcher
+    ) -> None:
+        """sendMediaGroup with 3 photos returns 3 Message objects."""
+        from aiogram.types import InputMediaPhoto
+
+        async with MockTelegramBot(simple_dispatcher) as mock_bot:
+            media = [
+                InputMediaPhoto(media="photo_1", caption="Caption text"),
+                InputMediaPhoto(media="photo_2"),
+                InputMediaPhoto(media="photo_3"),
+            ]
+            result = await mock_bot.bot.send_media_group(
+                chat_id=123, media=media,
+            )
+
+            assert len(result) == 3
+            assert result[0].caption == "Caption text"
+            assert result[1].caption is None
+
+    @pytest.mark.asyncio
+    async def test_send_media_group_tracked(
+        self, simple_dispatcher: Dispatcher
+    ) -> None:
+        """sendMediaGroup request is tracked."""
+        from aiogram.types import InputMediaPhoto
+
+        async with MockTelegramBot(simple_dispatcher) as mock_bot:
+            media = [
+                InputMediaPhoto(media="photo_a"),
+                InputMediaPhoto(media="photo_b"),
+            ]
+            await mock_bot.bot.send_media_group(chat_id=123, media=media)
+
+            tracked = mock_bot._server.tracker.get_send_media_group_requests()
+            assert len(tracked) == 1
+
+    @pytest.mark.asyncio
+    async def test_send_media_group_has_media_group_id(
+        self, simple_dispatcher: Dispatcher
+    ) -> None:
+        """All returned messages share the same media_group_id."""
+        from aiogram.types import InputMediaPhoto
+
+        async with MockTelegramBot(simple_dispatcher) as mock_bot:
+            media = [
+                InputMediaPhoto(media="p1"),
+                InputMediaPhoto(media="p2"),
+            ]
+            result = await mock_bot.bot.send_media_group(
+                chat_id=123, media=media,
+            )
+
+            ids = {m.media_group_id for m in result}
+            assert len(ids) == 1
+            assert None not in ids
+
+
 class TestMockServerAssertions:
     """Test assertion helper methods."""
 

@@ -200,6 +200,36 @@ class TestOnStart:
             await _send_start(bot, "   ")
             bot.assert_last_bot_message_contains(OnboardingTemplates.no_link())
 
+    async def test_manager_start_gets_greeting(self, mocks: MockHolder):
+        """/start without invite → manager gets manager greeting."""
+        mocks.manager_repo.get_by_telegram_id.return_value = _make_manager(
+            role="manager",
+        )
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp) as bot:
+            await _send_start(bot)
+            bot.assert_last_bot_message_contains("Привет")
+            bot.assert_last_bot_message_contains("в группе")
+
+    async def test_accountant_start_gets_greeting(self, mocks: MockHolder):
+        """/start without invite → accountant gets accountant greeting."""
+        mocks.manager_repo.get_by_telegram_id.return_value = _make_manager(
+            role="accountant",
+        )
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp) as bot:
+            await _send_start(bot)
+            bot.assert_last_bot_message_contains("Привет")
+            bot.assert_last_bot_message_contains("оплаты")
+
+    async def test_unknown_user_start_gets_no_link(self, mocks: MockHolder):
+        """/start without invite → unknown user gets 'ask manager'."""
+        mocks.manager_repo.get_by_telegram_id.return_value = None
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp) as bot:
+            await _send_start(bot)
+            bot.assert_last_bot_message_contains(OnboardingTemplates.no_link())
+
     async def test_db_error_on_lookup(self, mocks: MockHolder):
         """Line 67: get_by_invite_code raises → 'Ссылка недействительна'."""
         mocks.course_repo.get_by_invite_code.side_effect = Exception("DB down")

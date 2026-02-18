@@ -9,9 +9,11 @@ from supabase import AsyncClient, acreate_client
 from config import Settings
 from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.course_repository import CourseRepository
+from repositories.document_repository import DocumentRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.owner_repository import OwnerRepository
+from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
 from services.gemini_service import GeminiService
@@ -142,6 +144,20 @@ class AppProvider(Provider):
     @provide
     def get_gemini_service(self) -> GeminiService:
         return GeminiService(api_key=self._settings.gemini_api_key)
+
+    @provide
+    def get_document_repository(
+        self,
+        supabase: AsyncClient,
+    ) -> DocumentRepository:
+        return DocumentRepository(supabase)
+
+    @provide
+    def get_payment_receipt_repository(
+        self,
+        supabase: AsyncClient,
+    ) -> PaymentReceiptRepository:
+        return PaymentReceiptRepository(supabase)
 
     @provide
     def get_ocr_service(

@@ -55,10 +55,18 @@ async def on_start(
     state: FSMContext,
     course_repository: FromDishka[CourseRepository],
     user_repository: FromDishka[UserRepository],
+    manager_repository: FromDishka[ManagerRepository],
 ) -> None:
     invite_code = command.args.strip() if command.args else ""
 
     if not invite_code:
+        manager = await manager_repository.get_by_telegram_id(message.from_user.id)
+        if manager and manager.role == "manager":
+            await message.answer(OnboardingTemplates.manager_greeting(manager.name))
+            return
+        if manager and manager.role == "accountant":
+            await message.answer(OnboardingTemplates.accountant_greeting(manager.name))
+            return
         await _send_and_auto_delete(message, OnboardingTemplates.no_link(), INVALID_AUTO_DELETE)
         return
 

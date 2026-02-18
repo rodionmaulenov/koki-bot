@@ -2,10 +2,11 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message
+from aiogram.types import InputMediaPhoto, Message
 from dishka.integrations.aiogram import FromDishka
 from redis.asyncio import Redis
 
+from keyboards.payment import payment_receipt_keyboard
 from models.ocr import OCRServerError
 from repositories.manager_repository import ManagerRepository
 from services.add_service import AddService
@@ -194,8 +195,57 @@ async def _create_link(
         ),
     )
 
+    # Notify accountants
+    await _notify_accountants(message, data, course.id, manager_repository)
+
     await _clear_add_flow_key(redis, message.message_thread_id)
     await state.clear()
+
+
+async def _notify_accountants(
+    message: Message,
+    data: dict,
+    course_id: int,
+    manager_repository: ManagerRepository,
+) -> None:
+    try:
+        accountants = await manager_repository.get_active_by_role("accountant")
+    except Exception:
+        logger.exception("Failed to fetch accountants for course_id=%d", course_id)
+        return
+
+    if not accountants:
+        return
+
+    caption = AddTemplates.accountant_caption(
+        name=data["name"],
+        card_number=data["card_number"],
+        card_holder_name=data["card_holder"],
+    )
+    media = [
+        InputMediaPhoto(
+            media=data["passport_file_id"], caption=caption, parse_mode="HTML",
+        ),
+        InputMediaPhoto(media=data["receipt_file_id"]),
+        InputMediaPhoto(media=data["card_file_id"]),
+    ]
+    keyboard = payment_receipt_keyboard(course_id)
+
+    for accountant in accountants:
+        try:
+            await message.bot.send_media_group(
+                chat_id=accountant.telegram_id, media=media,
+            )
+            await message.bot.send_message(
+                chat_id=accountant.telegram_id,
+                text=AddTemplates.accountant_send_receipt(),
+                reply_markup=keyboard,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to notify accountant=%d for course_id=%d",
+                accountant.telegram_id, course_id,
+            )
 
 
 @router.message(AddStates.waiting_card)

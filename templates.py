@@ -207,6 +207,73 @@ class AddTemplates:
     def error_try_later() -> str:
         return "Ошибка, попробуйте позже через 5 минут"
 
+    # --- Уведомление бухгалтеру ---
+
+    @staticmethod
+    def accountant_caption(
+        name: str, card_number: str, card_holder_name: str,
+    ) -> str:
+        return (
+            f"\U0001f464 {escape(name)}\n"
+            f"\U0001f4b3 <code>{escape(card_number)}</code>\n"
+            f"\U0001f4dd <code>{escape(card_holder_name)}</code>"
+        )
+
+    @staticmethod
+    def accountant_send_receipt() -> str:
+        return "Загрузите чек об оплате"
+
+
+class PaymentTemplates:
+    @staticmethod
+    def ask_receipt(girl_name: str) -> str:
+        return f"Отправьте фото чека об оплате для <b>{escape(girl_name)}</b>"
+
+    @staticmethod
+    def processing() -> str:
+        return "Подождите, обрабатываю фото..."
+
+    @staticmethod
+    def not_a_receipt() -> str:
+        return "<i>Это не чек об оплате. Отправьте фото чека</i>"
+
+    @staticmethod
+    def no_amount() -> str:
+        return "<i>Не удалось определить сумму. Попробуйте другое фото</i>"
+
+    @staticmethod
+    def already_uploaded() -> str:
+        return "Чек уже загружен для этого курса"
+
+    @staticmethod
+    def course_not_payable() -> str:
+        return "Курс завершён или отклонён"
+
+    @staticmethod
+    def server_error() -> str:
+        return "<i>Ошибка сервера, попробуйте через минуту</i>"
+
+    @staticmethod
+    def photo_only() -> str:
+        return "<i>Отправьте фото чека об оплате</i>"
+
+    @staticmethod
+    def receipt_accepted(amount: int) -> str:
+        formatted = f"{amount:,}".replace(",", " ")
+        return f"\u2705 Чек принят. Сумма: {formatted} сум"
+
+    @staticmethod
+    def receipt_uploaded() -> str:
+        return "\u2705 Чек загружен"
+
+    @staticmethod
+    def manager_receipt(girl_name: str, amount: int) -> str:
+        formatted = f"{amount:,}".replace(",", " ")
+        return (
+            f"\U0001f4b3 Чек оплаты для <b>{escape(girl_name)}</b>\n"
+            f"Сумма: {formatted} сум"
+        )
+
 
 class ReissueTemplates:
     _CATEGORY_HEADERS: dict[ReissueCategory, str] = {
@@ -253,6 +320,16 @@ class ReissueTemplates:
 
 
 class OnboardingTemplates:
+    # --- /start по ролям ---
+
+    @staticmethod
+    def manager_greeting(name: str) -> str:
+        return f"Привет, {escape(name)}! Используй меня в группе для добавления девушек."
+
+    @staticmethod
+    def accountant_greeting(name: str) -> str:
+        return f"Привет, {escape(name)}! Я буду отправлять тебе данные для оплаты."
+
     # --- Невалидные сценарии ---
 
     @staticmethod

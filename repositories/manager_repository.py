@@ -32,3 +32,14 @@ class ManagerRepository:
         if response.data:
             return Manager(**response.data[0])
         return None
+
+    async def get_active_by_role(self, role: str) -> list[Manager]:
+        response = await (
+            self._supabase.schema("public")
+            .table("managers")
+            .select("id, telegram_id, name, is_active, role, created_at")
+            .eq("role", role)
+            .eq("is_active", True)
+            .execute()
+        )
+        return [Manager(**row) for row in response.data]
