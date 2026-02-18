@@ -1,29 +1,78 @@
+# =========================
 # Git
-.git/
+# =========================
+.git
 .gitignore
 
-# Python
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
-
-# Tests (не нужны в prod)
-tests/
-
-# Environment
+# =========================
+# Environment & Secrets
+# =========================
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 
-# Temp
-temp/
-
-# IDE
+# =========================
+# IDE - PyCharm / VSCode
+# =========================
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
 
-# Docker
+# =========================
+# Python cache
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+
+# =========================
+# Virtual environments
+# =========================
+.venv/
+venv/
+
+# =========================
+# Testing
+# =========================
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+test_main.http
+
+# =========================
+# Documentation
+# =========================
+*.md
+
+# =========================
+# Docker (don't include in context)
+# =========================
 Dockerfile
-docker-compose.yml
+docker-compose*.yml
 .dockerignore
 
-# Docs
-*.md
+# =========================
+# CI/CD
+# =========================
+.github/
+
+# =========================
+# Project-specific
+# =========================
+.claude/
+supabase/
+migrations/
+temp/
+assets/
+*.log
+logs/

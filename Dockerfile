@@ -1,30 +1,46 @@
-# =============================================================================
-# Malika Bot — Dockerfile
-# =============================================================================
+# ===========================================
+# Stage 1: Builder — install dependencies
+# ===========================================
+FROM python:3.13-slim AS builder
 
-FROM python:3.13-slim
-
-# Не буферизовать stdout/stderr
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvinstall/uv
+ENV PATH="/uvinstall:$PATH"
 
 WORKDIR /app
 
-# Устанавливаем uv (быстрый пакетный менеджер)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+# Compile bytecode for faster startup, copy mode for Docker
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
 
-# Копируем файлы зависимостей
+# Install dependencies first (cached layer)
 COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
-# Устанавливаем зависимости
-RUN uv sync --frozen --no-dev
+# Copy application code and install project
+COPY . .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
-# Копируем код приложения
-COPY app/ ./app/
-COPY run_polling.py ./
+# ===========================================
+# Stage 2: Runtime — minimal image
+# ===========================================
+FROM python:3.13-slim
 
-# Создаём директорию для временных файлов (видео от Gemini)
-RUN mkdir -p /app/temp
+ENV PYTHONUNBUFFERED=1
 
-# По умолчанию запускаем бота
-CMD ["uv", "run", "python", "run_polling.py"]
+WORKDIR /app
+
+# Create non-root user
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+
+# Copy venv and application code from builder
+COPY --from=builder --chown=appuser:appuser /app /app
+
+USER appuser
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+EXPOSE 8000
+
+CMD ["python", "main.py"]

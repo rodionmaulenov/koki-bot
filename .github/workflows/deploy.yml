@@ -1,23 +1,20 @@
-# =============================================================================
-# Malika Bot — GitHub Actions Deploy
-# =============================================================================
-
-name: Deploy
+name: Build and Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  # ===========================================
+  # Job 1: Build and Push to GHCR
+  # ===========================================
   build-and-push:
-    name: Build and Push Docker Image
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       packages: write
@@ -26,20 +23,20 @@ jobs:
       image_tag: ${{ steps.meta.outputs.tags }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
+      - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -48,7 +45,7 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -57,85 +54,69 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
 
+  # ===========================================
+  # Job 2: Deploy to VPS
+  # ===========================================
   deploy:
-    name: Deploy to Server
     runs-on: ubuntu-latest
     needs: build-and-push
 
     steps:
-      - name: Deploy to VPS
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.yml"
+          target: "/opt/koki-bot/"
+
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # Переходим в директорию проекта
-            mkdir -p /opt/malika-bot
-            cd /opt/malika-bot
+            cd /opt/koki-bot
 
-            # Создаём .env файл из секретов
-            cat > .env << EOF
+            # Generate .env file from secrets
+            cat > .env << 'ENVEOF'
             BOT_TOKEN=${{ secrets.BOT_TOKEN }}
             SUPABASE_URL=${{ secrets.SUPABASE_URL }}
             SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            REDIS_URL=redis://redis:6379/0
+            KOK_GROUP_ID=${{ secrets.KOK_GROUP_ID }}
+            KOK_GENERAL_TOPIC_ID=${{ secrets.KOK_GENERAL_TOPIC_ID }}
             COMMANDS_GROUP_ID=${{ secrets.COMMANDS_GROUP_ID }}
             COMMANDS_THREAD_ID=${{ secrets.COMMANDS_THREAD_ID }}
-            GENERAL_THREAD_ID=${{ secrets.GENERAL_THREAD_ID }}
-            RULES_MESSAGE_ID=${{ secrets.RULES_MESSAGE_ID }}
-            KOK_GROUP_ID=${{ secrets.KOK_GROUP_ID }}
-            DASHBOARD_TYPE=${{ secrets.DASHBOARD_TYPE }}
-            EOF
+            BOT_TYPE=${{ secrets.BOT_TYPE }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            ERROR_TOPIC_CHAT_ID=${{ secrets.ERROR_TOPIC_CHAT_ID }}
+            ERROR_TOPIC_ID=${{ secrets.ERROR_TOPIC_ID }}
+            WHATSAPP_ACCESS_TOKEN=${{ secrets.WHATSAPP_ACCESS_TOKEN }}
+            WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+            WHATSAPP_BUSINESS_ACCOUNT_ID=${{ secrets.WHATSAPP_BUSINESS_ACCOUNT_ID }}
+            WHATSAPP_APP_SECRET=${{ secrets.WHATSAPP_APP_SECRET }}
+            WHATSAPP_VERIFY_TOKEN=${{ secrets.WHATSAPP_VERIFY_TOKEN }}
+            WHATSAPP_GROUP_ID=${{ secrets.WHATSAPP_GROUP_ID }}
+            REDIS_URL=redis://redis:6379/0
+            ENVEOF
 
-            # Создаём docker-compose.yml
-            cat > docker-compose.yml << EOF
-            services:
-              redis:
-                image: redis:alpine
-                restart: unless-stopped
-                volumes:
-                  - redis_data:/data
+            # Login to GitHub Container Registry
+            echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-              bot:
-                image: ghcr.io/${{ github.repository }}:latest
-                restart: unless-stopped
-                env_file: .env
-                depends_on:
-                  - redis
-                volumes:
-                  - ./temp:/app/temp
-
-              worker:
-                image: ghcr.io/${{ github.repository }}:latest
-                command: uv run taskiq worker app.workers.broker:broker
-                restart: unless-stopped
-                env_file: .env
-                depends_on:
-                  - redis
-                volumes:
-                  - ./temp:/app/temp
-
-              scheduler:
-                image: ghcr.io/${{ github.repository }}:latest
-                command: uv run taskiq scheduler app.workers.scheduler:scheduler
-                restart: unless-stopped
-                env_file: .env
-                depends_on:
-                  - redis
-
-            volumes:
-              redis_data:
-            EOF
-
-            # Логинимся в GitHub Container Registry
-            echo ${{ secrets.GH_PAT }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-            # Скачиваем новый образ и перезапускаем
+            # Pull latest images and restart
             docker compose pull
             docker compose up -d
 
-            # Чистим старые образы
+            # Clean up old images
             docker image prune -f
+
+            echo "Deployment complete!"

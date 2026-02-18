@@ -1,18 +1,22 @@
 [project]
-name = "malika-bot"
+name = "koki-bot"
 version = "0.1.0"
 description = "Telegram bot for 21-day contraceptive program"
 requires-python = ">=3.13"
 dependencies = [
     "aiogram>=3.23.0",
+    "dishka>=1.5.0",
     "google-genai>=1.56.0",
+    "opencv-python-headless>=4.10.0",
+    "Pillow>=11.0.0",
     "pydantic-settings>=2.12.0",
-    "pytz>=2025.2",
     "redis>=7.1.0",
     "rich>=14.2.0",
+    "sentry-sdk>=2.0.0",
     "supabase>=2.27.0",
-    "taskiq>=0.12.1",
-    "taskiq-redis>=1.2.1",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "httpx>=0.28.0",
 ]
 
 [project.optional-dependencies]
@@ -25,6 +29,15 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+pythonpath = ["."]
 filterwarnings = [
     "ignore::DeprecationWarning",
+]
+
+[dependency-groups]
+dev = [
+    "freezegun>=1.5.5",
+    "pytest-asyncio>=1.3.0",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.15.1",
 ]

@@ -1,67 +1,146 @@
-# =============================================================================
-# Malika Bot — Docker Compose
-# =============================================================================
+# ===========================================
+# Koki Bot — Docker Compose (Production)
+# ===========================================
 
 services:
-  # ---------------------------------------------------------------------------
-  # Redis — брокер для Taskiq
-  # ---------------------------------------------------------------------------
+  # -----------------------------------------
+  # Redis — FSM storage, worker deduplication
+  # -----------------------------------------
   redis:
-    image: redis:alpine
+    image: redis:7-alpine
     restart: unless-stopped
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ---------------------------------------------------------------------------
-  # Bot — Long Polling
-  # ---------------------------------------------------------------------------
+  # -----------------------------------------
+  # Bot — Telegram polling + internal scheduler
+  # -----------------------------------------
   bot:
-    build: .
+    image: ghcr.io/rodionmaulenov/koki-bot:latest
     restart: unless-stopped
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
-      - redis
-    volumes:
-      - ./temp:/app/temp
+      redis:
+        condition: service_healthy
+        restart: true
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    healthcheck:
+      test: ["CMD", "python", "-c", "import redis; r=redis.from_url('redis://redis:6379/0'); r.ping()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
-  # ---------------------------------------------------------------------------
-  # Worker — выполняет задачи из очереди
-  # ---------------------------------------------------------------------------
-  worker:
-    build: .
-    command: uv run taskiq worker app.workers.broker:broker
+  # -----------------------------------------
+  # Nginx reverse proxy (автоматический)
+  # -----------------------------------------
+  nginx-proxy:
+    image: nginxproxy/nginx-proxy
     restart: unless-stopped
-    env_file: .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      - redis
+    ports:
+      - "80:80"
+      - "443:443"
     volumes:
-      - ./temp:/app/temp
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - html:/usr/share/nginx/html
+      - vhost:/etc/nginx/vhost.d
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ---------------------------------------------------------------------------
-  # Scheduler — запускает задачи по расписанию
-  # ---------------------------------------------------------------------------
-  scheduler:
-    build: .
-    command: uv run taskiq scheduler app.workers.scheduler:scheduler
+  # -----------------------------------------
+  # SSL сертификаты (автообновление)
+  # -----------------------------------------
+  acme-companion:
+    image: nginxproxy/acme-companion
+    restart: unless-stopped
+    volumes_from:
+      - nginx-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - acme:/etc/acme.sh
+    environment:
+      - DEFAULT_EMAIL=happysurmam@gmail.com
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # -----------------------------------------
+  # WhatsApp — FastAPI webhook server
+  # -----------------------------------------
+  whatsapp:
+    image: ghcr.io/rodionmaulenov/koki-bot:latest
+    command: python run_whatsapp.py
     restart: unless-stopped
     env_file: .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - VIRTUAL_HOST=koki-bot.duckdns.org
+      - VIRTUAL_PORT=8000
+      - LETSENCRYPT_HOST=koki-bot.duckdns.org
+    expose:
+      - "8000"
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+        restart: true
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
 volumes:
   redis_data:
+    name: koki_bot_redis_data
+  certs:
+  html:
+  vhost:
+  acme:

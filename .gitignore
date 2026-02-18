@@ -1,15 +1,71 @@
-# Python
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
-
-# Environment
+# =========================
+# Secrets - NEVER commit!
+# =========================
 .env
-.env.test
+.env.*
+!.env.example
+*.pem
+*.key
 
-# Temp
-temp/
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
 
-# IDE
+# Virtual environments
+.venv/
+venv/
+
+# =========================
+# IDE - PyCharm / VSCode
+# =========================
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =========================
+# Testing
+# =========================
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# =========================
+# OS generated
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Project-specific
+# =========================
+supabase/
+.claude/
+temp/
+assets/
+*.db
+*.sqlite
+*.sqlite3
+
+# Dev notes (not for repo)
+FLOW.md
+PROGRESS.md
+translations_girl_chat.md
+test_main.http

@@ -1,730 +1,295 @@
-"""Общие fixtures для тестов."""
-import random
-import secrets
-from pathlib import Path
-from datetime import date, timedelta, datetime
+"""
+Test configuration and shared fixtures for koki-bot.
 
-import pytest
-import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock
-from aiogram.types import User, Chat, Message, CallbackQuery
+Provides fixtures for:
+- Settings from .env.test
+- Database access (Supabase)
+- Redis client
+- Repository instances
+- Database cleanup
+- Test data creation helpers
+"""
+import sys
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 # =============================================================================
-# ЗАГРУЗКА ТЕСТОВОГО ОКРУЖЕНИЯ
-# ========================os.environ["ENV_FILE"] = ".env.test"=====================================================
+# UVLOOP FOR FASTER ASYNC (Linux/macOS only)
+# =============================================================================
+
+
+def _install_uvloop() -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        import uvloop
+        uvloop.install()
+    except ImportError:
+        pass
+
+
+_install_uvloop()
+
+# =============================================================================
+# LOAD TEST ENVIRONMENT (.env.test)
+# =============================================================================
 
 env_test_path = Path(__file__).parent.parent / ".env.test"
 if env_test_path.exists():
     load_dotenv(env_test_path, override=True)
 
-# Импортируем после загрузки .env
-from app.config import get_settings
+import pytest
+from redis.asyncio import from_url as redis_from_url
+from supabase import AsyncClient, acreate_client
+
+from config import Settings, get_settings
+from models.course import Course
+from models.intake_log import IntakeLog
+from models.manager import Manager
+from models.owner import Owner
+from models.user import User
+from repositories.commands_messages_repository import CommandsMessagesRepository
+from repositories.course_repository import CourseRepository
+from repositories.intake_log_repository import IntakeLogRepository
+from repositories.manager_repository import ManagerRepository
+from repositories.owner_repository import OwnerRepository
+from repositories.user_repository import UserRepository
 
 
 # =============================================================================
-# TIME HELPERS
+# BASE FIXTURES
 # =============================================================================
 
-def get_tashkent_now():
-    """Мок текущего времени в Ташкенте."""
-    from app.utils.time_utils import get_tashkent_now as real_get_tashkent_now
-    return real_get_tashkent_now()
+
+@pytest.fixture
+def settings() -> Settings:
+    """Load settings from .env.test."""
+    get_settings.cache_clear()
+    return get_settings()
 
 
-def get_intake_time_in_window() -> str:
-    """Возвращает intake_time в окне приёма (5 минут назад).
-
-    Обрабатывает переход через полночь — если вычитание 5 минут
-    переводит в предыдущий день, используем фиксированное время.
-    """
-    now = get_tashkent_now()
-    # Если близко к полуночи (первые 15 минут дня), используем фиксированное время
-    if now.hour == 0 and now.minute < 15:
-        return "00:00"
-
-    minutes = now.hour * 60 + now.minute - 5
-    if minutes < 0:
-        minutes = 0
-    hour = minutes // 60
-    minute = minutes % 60
-    return f"{hour:02d}:{minute:02d}"
+@pytest.fixture
+async def supabase(settings: Settings) -> AsyncClient:
+    """Create async Supabase client."""
+    return await acreate_client(settings.supabase_url, settings.supabase_key)
 
 
-def get_intake_time_too_early() -> str:
-    """Возвращает intake_time слишком рано (30 минут в будущем).
-
-    Обрабатывает переход через полночь - если добавление 30 минут
-    переводит в следующий день, используем фиксированное время.
-    """
-    now = get_tashkent_now()
-    # Если близко к полуночи (после 23:30), используем фиксированное время
-    if now.hour == 23 and now.minute >= 30:
-        return "23:59"
-
-    minutes = now.hour * 60 + now.minute + 30
-    hour = (minutes // 60) % 24
-    minute = minutes % 60
-    return f"{hour:02d}:{minute:02d}"
-
-
-# =============================================================================
-# REAL SUPABASE CLIENT
-# =============================================================================
-
-@pytest_asyncio.fixture(loop_scope="function")
-async def supabase():
-    """Реальный Supabase клиент для интеграционных тестов."""
-    from supabase._async.client import create_client as acreate_client
-    settings = get_settings()
-    # Создаём свежий клиент для каждого теста
-    client = await acreate_client(
-        settings.supabase_url,
-        settings.supabase_key,
-    )
+@pytest.fixture
+async def redis(settings: Settings):
+    """Redis client for tests (DB 2 — separate from prod)."""
+    client = redis_from_url(settings.redis_url)
     yield client
-    # Закрываем HTTP клиент после теста
-    await client.postgrest.aclose()
+    await client.aclose()
 
 
 # =============================================================================
-# MOCK SUPABASE (для unit-тестов)
+# CLEANUP
 # =============================================================================
+
+
+async def delete_all(supabase: AsyncClient) -> None:
+    """Delete all test data from database."""
+    # kok schema (order matters: FK dependencies)
+    await supabase.schema("kok").table("intake_logs").delete().neq("id", 0).execute()
+    await supabase.schema("kok").table("courses").delete().neq("id", 0).execute()
+    await supabase.schema("kok").table("documents").delete().neq("id", 0).execute()
+    await supabase.schema("kok").table("users").delete().neq("id", 0).execute()
+    # public schema
+    await supabase.table("commands_messages").delete().neq("id", 0).execute()
+    await supabase.table("managers").delete().neq("id", 0).execute()
+    await supabase.table("owners").delete().neq("id", 0).execute()
+
 
 @pytest.fixture
-def mock_supabase():
-    """Мок Supabase клиента."""
-    return MagicMock()
+async def cleanup_db(supabase: AsyncClient):
+    """Clean all test data before and after each test.
 
-
-def create_supabase_chain(data=None, single=False):
-    """Создаёт цепочку моков для Supabase запросов.
-
-    Args:
-        data: Данные для возврата (список или словарь)
-        single: Если True, data интерпретируется как одна запись
+    NOT autouse — add to per-directory conftest.py files
+    that need database cleanup (repositories, workers).
     """
-    chain = MagicMock()
-    chain.select = MagicMock(return_value=chain)
-    chain.insert = MagicMock(return_value=chain)
-    chain.update = MagicMock(return_value=chain)
-    chain.upsert = MagicMock(return_value=chain)
-    chain.delete = MagicMock(return_value=chain)
-    chain.eq = MagicMock(return_value=chain)
-    chain.neq = MagicMock(return_value=chain)
-    chain.gte = MagicMock(return_value=chain)
-    chain.lte = MagicMock(return_value=chain)
-    chain.lt = MagicMock(return_value=chain)
-    chain.in_ = MagicMock(return_value=chain)
-    chain.ilike = MagicMock(return_value=chain)
-    chain.order = MagicMock(return_value=chain)
-    chain.limit = MagicMock(return_value=chain)
-    chain.single = MagicMock(return_value=chain)
-    chain.maybe_single = MagicMock(return_value=chain)
+    await delete_all(supabase)
+    yield
+    await delete_all(supabase)
 
-    result = MagicMock()
-    if single and data is not None:
-        result.data = [data]
+
+# =============================================================================
+# REPOSITORY FIXTURES
+# =============================================================================
+
+
+@pytest.fixture
+def course_repository(supabase: AsyncClient) -> CourseRepository:
+    return CourseRepository(supabase)
+
+
+@pytest.fixture
+def user_repository(supabase: AsyncClient) -> UserRepository:
+    return UserRepository(supabase)
+
+
+@pytest.fixture
+def intake_log_repository(supabase: AsyncClient) -> IntakeLogRepository:
+    return IntakeLogRepository(supabase)
+
+
+@pytest.fixture
+def manager_repository(supabase: AsyncClient) -> ManagerRepository:
+    return ManagerRepository(supabase)
+
+
+@pytest.fixture
+def owner_repository(supabase: AsyncClient) -> OwnerRepository:
+    return OwnerRepository(supabase)
+
+
+@pytest.fixture
+def commands_messages_repository(
+    supabase: AsyncClient, settings: Settings,
+) -> CommandsMessagesRepository:
+    return CommandsMessagesRepository(supabase, bot_type=settings.bot_type)
+
+
+# =============================================================================
+# TEST DATA HELPERS
+# =============================================================================
+
+
+async def create_test_manager(
+    supabase: AsyncClient,
+    telegram_id: int = 7172139170,
+    name: str = "Test Manager",
+    is_active: bool = True,
+) -> Manager:
+    """Create a test manager in public.managers."""
+    response = await (
+        supabase.table("managers")
+        .insert({"telegram_id": telegram_id, "name": name, "is_active": is_active})
+        .execute()
+    )
+    return Manager(**response.data[0])
+
+
+async def create_test_owner(
+    supabase: AsyncClient,
+    telegram_id: int = 641677101,
+    name: str = "Test Owner",
+    is_active: bool = True,
+) -> Owner:
+    """Create a test owner in public.owners."""
+    response = await (
+        supabase.table("owners")
+        .insert({"telegram_id": telegram_id, "name": name, "is_active": is_active})
+        .execute()
+    )
+    return Owner(**response.data[0])
+
+
+async def create_test_user(
+    supabase: AsyncClient,
+    manager_id: int,
+    name: str = "Ivanova Marina Alexandrovna",
+    telegram_id: int | None = None,
+    topic_id: int | None = None,
+    birth_date: str | None = None,
+) -> User:
+    """Create a test user in kok.users."""
+    data: dict = {"name": name, "manager_id": manager_id}
+    if telegram_id is not None:
+        data["telegram_id"] = telegram_id
+    if topic_id is not None:
+        data["topic_id"] = topic_id
+    if birth_date is not None:
+        data["birth_date"] = birth_date
+    response = await (
+        supabase.schema("kok").table("users").insert(data).execute()
+    )
+    return User(**response.data[0])
+
+
+async def create_test_course(
+    supabase: AsyncClient,
+    user_id: int,
+    status: str = "setup",
+    invite_code: str | None = "TEST12345678",
+    invite_used: bool = False,
+    intake_time: str | None = None,
+    start_date: str | None = None,
+    current_day: int = 0,
+    total_days: int = 21,
+    late_count: int = 0,
+    appeal_count: int = 0,
+    extended: bool = False,
+    late_dates: list[str] | None = None,
+) -> Course:
+    """Create a test course in kok.courses."""
+    data: dict = {
+        "user_id": user_id,
+        "status": status,
+        "invite_used": invite_used,
+        "current_day": current_day,
+        "total_days": total_days,
+        "late_count": late_count,
+        "appeal_count": appeal_count,
+        "extended": extended,
+    }
+    if invite_code is not None:
+        data["invite_code"] = invite_code
+    if intake_time is not None:
+        data["intake_time"] = intake_time
+    if start_date is not None:
+        data["start_date"] = start_date
+    if late_dates is not None:
+        data["late_dates"] = late_dates
     else:
-        result.data = data if data is not None else []
-    chain.execute = AsyncMock(return_value=result)
-
-    return chain
-
-
-# =============================================================================
-# REAL SERVICES (для интеграционных тестов)
-# =============================================================================
-
-@pytest_asyncio.fixture
-async def user_service(supabase):
-    """Реальный UserService."""
-    from app.services.users import UserService
-    return UserService(supabase)
-
-
-@pytest_asyncio.fixture
-async def course_service(supabase):
-    """Реальный CourseService."""
-    from app.services.courses import CourseService
-    return CourseService(supabase)
-
-
-@pytest_asyncio.fixture
-async def manager_service(supabase):
-    """Реальный ManagerService."""
-    from app.services.managers import ManagerService
-    return ManagerService(supabase)
-
-
-@pytest_asyncio.fixture
-async def intake_logs_service(supabase):
-    """Реальный IntakeLogsService."""
-    from app.services.intake_logs import IntakeLogsService
-    return IntakeLogsService(supabase)
-
-
-@pytest_asyncio.fixture
-async def topic_service(bot):
-    """Реальный TopicService."""
-    from app.services.topic import TopicService
-    settings = get_settings()
-    return TopicService(bot=bot, group_chat_id=settings.kok_group_id)
-
-
-# =============================================================================
-# TEST DATA FIXTURES (для интеграционных тестов)
-# =============================================================================
-
-@pytest_asyncio.fixture
-async def test_manager(supabase):
-    """Создаёт тестового менеджера и удаляет после теста."""
-    telegram_id = random.randint(100000000, 999999999)
-
-    result = await supabase.table("managers").insert({
-        "telegram_id": telegram_id,
-        "name": f"Test Manager {telegram_id}",
-    }).execute()
-
-    manager = result.data[0]
-    yield manager
-
-    # Cleanup
-    await supabase.table("managers").delete().eq("id", manager["id"]).execute()
-
-
-@pytest_asyncio.fixture
-async def test_user(supabase, test_manager):
-    """Создаёт тестового user без telegram_id."""
-    result = await supabase.table("users").insert({
-        "name": f"Тестова Девушка {random.randint(1000, 9999)}",
-        "manager_id": test_manager["id"],
-    }).execute()
-
-    user = result.data[0]
-    yield user
-
-    # Cleanup
-    await supabase.table("users").delete().eq("id", user["id"]).execute()
-
-
-@pytest_asyncio.fixture
-async def test_user_with_telegram(supabase, test_manager):
-    """Создаёт тестового user с telegram_id."""
-    telegram_id = random.randint(100000000, 999999999)
-
-    result = await supabase.table("users").insert({
-        "name": f"Тестова Девушка {random.randint(1000, 9999)}",
-        "manager_id": test_manager["id"],
-        "telegram_id": telegram_id,
-    }).execute()
-
-    user = result.data[0]
-    yield user
-
-    # Cleanup
-    await supabase.table("users").delete().eq("id", user["id"]).execute()
-
-
-@pytest_asyncio.fixture
-async def test_active_course(supabase, test_user_with_telegram):
-    """Создаёт активный курс."""
-    today = get_tashkent_now().date().isoformat()
-    intake_time = get_intake_time_in_window()
-
-    result = await supabase.table("courses").insert({
-        "user_id": test_user_with_telegram["id"],
-        "invite_code": secrets.token_urlsafe(8),
-        "invite_used": True,
-        "status": "active",
-        "start_date": today,
-        "intake_time": intake_time,
-        "current_day": 1,
-        "total_days": 21,
-    }).execute()
-
-    course = result.data[0]
-    yield course
-
-    # Cleanup
-    await supabase.table("intake_logs").delete().eq("course_id", course["id"]).execute()
-    await supabase.table("courses").delete().eq("id", course["id"]).execute()
-
-
-@pytest_asyncio.fixture
-async def test_future_course(supabase, test_user_with_telegram):
-    """Создаёт курс который ещё не начался."""
-    tomorrow = (get_tashkent_now().date() + timedelta(days=1)).isoformat()
-
-    result = await supabase.table("courses").insert({
-        "user_id": test_user_with_telegram["id"],
-        "invite_code": secrets.token_urlsafe(8),
-        "invite_used": True,
-        "status": "active",
-        "start_date": tomorrow,
-        "intake_time": "12:00",
-        "current_day": 1,
-        "total_days": 21,
-    }).execute()
-
-    course = result.data[0]
-    yield course
-
-    # Cleanup
-    await supabase.table("courses").delete().eq("id", course["id"]).execute()
-
-
-@pytest_asyncio.fixture
-async def test_active_course_too_early(supabase, test_user_with_telegram):
-    """Создаёт курс с intake_time в будущем (слишком рано для видео)."""
-    today = get_tashkent_now().date().isoformat()
-    intake_time = get_intake_time_too_early()
-
-    result = await supabase.table("courses").insert({
-        "user_id": test_user_with_telegram["id"],
-        "invite_code": secrets.token_urlsafe(8),
-        "invite_used": True,
-        "status": "active",
-        "start_date": today,
-        "intake_time": intake_time,
-        "current_day": 1,
-        "total_days": 21,
-    }).execute()
-
-    course = result.data[0]
-    yield course
-
-    # Cleanup
-    await supabase.table("courses").delete().eq("id", course["id"]).execute()
-
-
-# =============================================================================
-# GEMINI MOCKS (для тестов без реального API)
-# =============================================================================
-
-@pytest.fixture
-def mock_gemini_confirmed():
-    """Mock GeminiService который подтверждает видео."""
-    service = MagicMock()
-    service.verify_video = AsyncMock(return_value={
-        "is_taking_pill": True,
-        "confidence": 85,
-        "reason": "Видно приём таблетки",
-        "status": "confirmed",
-    })
-    return service
-
-
-@pytest.fixture
-def mock_gemini_pending():
-    """Mock GeminiService который отправляет на проверку."""
-    service = MagicMock()
-    service.verify_video = AsyncMock(return_value={
-        "is_taking_pill": False,
-        "confidence": 50,
-        "reason": "Не уверен",
-        "status": "pending_review",
-    })
-    return service
-
-
-# =============================================================================
-# MOCK SERVICES
-# =============================================================================
-
-@pytest.fixture
-def mock_course_service():
-    """Мок CourseService."""
-    service = MagicMock()
-    service.create = AsyncMock(return_value={
-        "id": 1,
-        "user_id": 1,
-        "invite_code": "test123",
-        "status": "setup",
-    })
-    service.get_by_invite_code = AsyncMock(return_value=None)
-    service.mark_invite_used = AsyncMock()
-    service.get_active_by_user_id = AsyncMock(return_value=None)
-    service.update = AsyncMock()
-    service.get_by_id = AsyncMock(return_value=None)
-    service.get_active_started = AsyncMock(return_value=[])
-    service.set_refused = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_user_service():
-    """Мок UserService."""
-    service = MagicMock()
-    service.get_by_telegram_id = AsyncMock(return_value=None)
-    service.set_telegram_id = AsyncMock()
-    service.get_by_id = AsyncMock(return_value=None)
-    service.set_topic_id = AsyncMock()
-    service.get_by_name_and_manager = AsyncMock(return_value=None)
-    service.get_active_by_manager = AsyncMock(return_value=[])
-    service.get_telegram_id = AsyncMock(return_value=None)
-    return service
-
-
-@pytest.fixture
-def mock_manager_service():
-    """Мок ManagerService."""
-    service = MagicMock()
-    service.get_by_telegram_id = AsyncMock(return_value={
-        "id": 1,
-        "telegram_id": 123456789,
-        "name": "Test Manager",
-    })
-    service.get_by_id = AsyncMock(return_value={
-        "id": 1,
-        "name": "Test Manager",
-    })
-    return service
-
-
-@pytest.fixture
-def mock_intake_logs_service():
-    """Мок IntakeLogsService."""
-    service = MagicMock()
-    service.create = AsyncMock()
-    service.get_by_course_and_day = AsyncMock(return_value=None)
-    service.update_status = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_topic_service():
-    """Мок TopicService."""
-    service = MagicMock()
-    service.create_topic = AsyncMock(return_value=123)
-    service.update_progress = AsyncMock()
-    service.send_registration_info = AsyncMock(return_value=456)
-    service.send_video = AsyncMock()
-    service.send_review_buttons = AsyncMock()
-    service.rename_topic_on_close = AsyncMock()
-    service.send_closure_message = AsyncMock()
-    service.close_topic = AsyncMock()
-    service.remove_registration_buttons = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_gemini_service():
-    """Мок GeminiService."""
-    service = MagicMock()
-    service.verify_video = AsyncMock(return_value={
-        "is_taking_pill": True,
-        "confidence": 85,
-        "reason": "Чётко видно приём таблетки",
-        "status": "confirmed",
-    })
-    service.download_video = MagicMock()
-    return service
-
-
-@pytest.fixture
-def mock_dashboard_service():
-    """Мок DashboardService."""
-    service = MagicMock()
-    service.generate_full_dashboard = AsyncMock(return_value="📊 Test Dashboard")
-    service.update_dashboard = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_commands_messages_service():
-    """Мок CommandsMessagesService."""
-    service = MagicMock()
-    service.add = AsyncMock()
-    service.get_all = AsyncMock(return_value=[])
-    service.delete_all = AsyncMock()
-    return service
-
-
-@pytest.fixture
-def mock_stats_messages_service():
-    """Мок StatsMessagesService."""
-    service = MagicMock()
-    service.get_by_type = AsyncMock(return_value=None)
-    service.upsert = AsyncMock()
-    service.update_timestamp = AsyncMock()
-    return service
-
-
-# =============================================================================
-# MOCK BOT
-# =============================================================================
-
-@pytest.fixture
-def mock_bot():
-    """Mock бота."""
-    mock = MagicMock()
-    mock.send_message = AsyncMock(return_value=MagicMock(message_id=123))
-    mock.edit_message_text = AsyncMock()
-    mock.edit_message_reply_markup = AsyncMock()
-    mock.edit_forum_topic = AsyncMock()
-    mock.create_forum_topic = AsyncMock(return_value=MagicMock(message_thread_id=456))
-    mock.close_forum_topic = AsyncMock()
-    mock.delete_message = AsyncMock()
-    mock.pin_chat_message = AsyncMock()
-    mock.send_video_note = AsyncMock()
-    mock.get_file = AsyncMock()
-    mock.download_file = AsyncMock()
-    mock.create_chat_invite_link = AsyncMock(return_value=MagicMock(invite_link="https://t.me/+test"))
-    mock.session = MagicMock()
-    mock.session.close = AsyncMock()
-    return mock
-
-
-@pytest.fixture
-def bot(mock_bot):
-    """Алиас для mock_bot."""
-    return mock_bot
-
-
-# =============================================================================
-# MOCK REDIS
-# =============================================================================
-
-@pytest.fixture
-def mock_redis():
-    """Mock Redis."""
-    mock = MagicMock()
-    mock.get = AsyncMock(return_value=None)
-    mock.set = AsyncMock(return_value=True)
-    mock.setex = AsyncMock(return_value=True)
-    mock.delete = AsyncMock(return_value=1)
-    mock.exists = AsyncMock(return_value=False)
-    mock.close = AsyncMock()
-    return mock
-
-
-@pytest.fixture
-def redis(mock_redis):
-    """Алиас для mock_redis."""
-    return mock_redis
-
-
-# =============================================================================
-# FAKE AIOGRAM OBJECTS
-# =============================================================================
-
-@pytest.fixture
-def fake_user():
-    """Фабрика для создания fake User."""
-    def _create(user_id: int = 123456789, first_name: str = "Test", username: str = "test_user"):
-        return User(id=user_id, is_bot=False, first_name=first_name, username=username)
-    return _create
-
-
-@pytest.fixture
-def fake_chat():
-    """Фабрика для создания fake Chat."""
-    def _create(chat_id: int = 123456789, chat_type: str = "private"):
-        return Chat(id=chat_id, type=chat_type)
-    return _create
-
-
-@pytest.fixture
-def mock_message(fake_user, fake_chat):
-    """Фабрика для создания mock Message."""
-    def _create(
-        text: str = "test",
-        user_id: int = 123456789,
-        chat_id: int = None,
-        message_id: int = 1,
-        message_thread_id: int = None,
-    ):
-        chat_id = chat_id or user_id
-
-        message = MagicMock(spec=Message)
-        message.message_id = message_id
-        message.message_thread_id = message_thread_id
-        message.date = datetime.now()
-        message.chat = fake_chat(chat_id=chat_id)
-        message.from_user = fake_user(user_id=user_id)
-        message.text = text
-        message.answer = AsyncMock()
-        message.reply = AsyncMock()
-        message.delete = AsyncMock()
-        message.edit_text = AsyncMock()
-        message.edit_reply_markup = AsyncMock()
-
-        return message
-    return _create
-
-
-@pytest.fixture
-def mock_callback(fake_user, mock_message):
-    """Фабрика для создания mock CallbackQuery."""
-    def _create(data: str = "test", user_id: int = 123456789, message_text: str = "test"):
-        callback = MagicMock(spec=CallbackQuery)
-        callback.id = "test_callback_id"
-        callback.from_user = fake_user(user_id=user_id)
-        callback.chat_instance = "test_instance"
-        callback.data = data
-        callback.message = mock_message(user_id=user_id, text=message_text)
-        callback.answer = AsyncMock()
-        return callback
-    return _create
-
-
-@pytest.fixture
-def mock_video_message(fake_user, fake_chat):
-    """Фабрика для создания mock Message с video_note."""
-    def _create(user_id: int = 123456789, file_id: str = "test_video_file_id"):
-        message = MagicMock(spec=Message)
-        message.message_id = 1
-        message.date = datetime.now()
-        message.chat = fake_chat(chat_id=user_id, chat_type="private")
-        message.from_user = fake_user(user_id=user_id)
-        message.answer = AsyncMock()
-
-        video_note = MagicMock()
-        video_note.file_id = file_id
-        message.video_note = video_note
-        message.video = None
-
-        return message
-    return _create
-
-
-@pytest.fixture
-def mock_regular_video_message(fake_user, fake_chat):
-    """Фабрика для создания mock Message с обычным video."""
-    def _create(user_id: int = 123456789, file_id: str = "test_video_file_id"):
-        message = MagicMock(spec=Message)
-        message.message_id = 1
-        message.date = datetime.now()
-        message.chat = fake_chat(chat_id=user_id, chat_type="private")
-        message.from_user = fake_user(user_id=user_id)
-        message.answer = AsyncMock()
-
-        video = MagicMock()
-        video.file_id = file_id
-        message.video = video
-        message.video_note = None
-
-        return message
-    return _create
-
-
-# =============================================================================
-# FSM CONTEXT MOCK
-# =============================================================================
-
-@pytest.fixture
-def mock_state():
-    """Мок FSMContext."""
-    state = MagicMock()
-    state.get_state = AsyncMock(return_value=None)
-    state.set_state = AsyncMock()
-    state.clear = AsyncMock()
-    state.get_data = AsyncMock(return_value={})
-    state.set_data = AsyncMock()
-    state.update_data = AsyncMock()
-    return state
-
-
-# =============================================================================
-# TEST DATA FACTORIES
-# =============================================================================
-
-@pytest.fixture
-def make_course():
-    """Фабрика для создания тестовых курсов."""
-    def _create(
-        course_id: int = 1,
-        user_id: int = 1,
-        invite_code: str = None,
-        invite_used: bool = False,
-        status: str = "setup",
-        cycle_day: int = 1,
-        intake_time: str = "12:00",
-        start_date: str = None,
-        current_day: int = 1,
-        total_days: int = 21,
-        late_count: int = 0,
-        allow_video: bool = False,
-        registration_message_id: int = None,
-    ):
-        return {
-            "id": course_id,
-            "user_id": user_id,
-            "invite_code": invite_code or secrets.token_urlsafe(8),
-            "invite_used": invite_used,
-            "status": status,
-            "cycle_day": cycle_day,
-            "intake_time": intake_time,
-            "start_date": start_date or date.today().isoformat(),
-            "current_day": current_day,
-            "total_days": total_days,
-            "late_count": late_count,
-            "allow_video": allow_video,
-            "registration_message_id": registration_message_id,
-            "created_at": datetime.now().isoformat(),
-        }
-    return _create
-
-
-@pytest.fixture
-def make_user():
-    """Фабрика для создания тестовых пользователей."""
-    def _create(
-        user_id: int = 1,
-        telegram_id: int = None,
-        name: str = "Тестова Мария Ивановна",
-        manager_id: int = 1,
-        topic_id: int = None,
-    ):
-        return {
-            "id": user_id,
-            "telegram_id": telegram_id,
-            "name": name,
-            "manager_id": manager_id,
-            "topic_id": topic_id,
-            "created_at": datetime.now().isoformat(),
-        }
-    return _create
-
-
-@pytest.fixture
-def make_manager():
-    """Фабрика для создания тестовых менеджеров."""
-    def _create(
-        manager_id: int = 1,
-        telegram_id: int = 123456789,
-        name: str = "Test Manager",
-    ):
-        return {
-            "id": manager_id,
-            "telegram_id": telegram_id,
-            "name": name,
-            "created_at": datetime.now().isoformat(),
-        }
-    return _create
-
-
-@pytest.fixture
-def make_intake_log():
-    """Фабрика для создания тестовых intake_logs."""
-    def _create(
-        log_id: int = 1,
-        course_id: int = 1,
-        day: int = 1,
-        status: str = "taken",
-        video_file_id: str = "test_file_id",
-        verified_by: str = "ai",
-        confidence: int = 85,
-    ):
-        return {
-            "id": log_id,
-            "course_id": course_id,
-            "day": day,
-            "status": status,
-            "video_file_id": video_file_id,
-            "verified_by": verified_by,
-            "confidence": confidence,
-            "created_at": datetime.now().isoformat(),
-        }
-    return _create
+        data["late_dates"] = []
+
+    response = await (
+        supabase.schema("kok").table("courses").insert(data).execute()
+    )
+    return Course(**response.data[0])
+
+
+async def create_test_intake_log(
+    supabase: AsyncClient,
+    course_id: int,
+    day: int = 1,
+    scheduled_at: str | None = None,
+    taken_at: str | None = None,
+    status: str = "pending",
+    video_file_id: str = "test_video_123",
+    delay_minutes: int | None = None,
+    verified_by: str | None = None,
+    confidence: float | None = None,
+    review_started_at: str | None = None,
+    reshoot_deadline: str | None = None,
+    private_message_id: int | None = None,
+) -> IntakeLog:
+    """Create a test intake log in kok.intake_logs."""
+    data: dict = {
+        "course_id": course_id,
+        "day": day,
+        "status": status,
+        "video_file_id": video_file_id,
+    }
+    if scheduled_at is not None:
+        data["scheduled_at"] = scheduled_at
+    if taken_at is not None:
+        data["taken_at"] = taken_at
+    if delay_minutes is not None:
+        data["delay_minutes"] = delay_minutes
+    if verified_by is not None:
+        data["verified_by"] = verified_by
+    if confidence is not None:
+        data["confidence"] = confidence
+    if review_started_at is not None:
+        data["review_started_at"] = review_started_at
+    if reshoot_deadline is not None:
+        data["reshoot_deadline"] = reshoot_deadline
+    if private_message_id is not None:
+        data["private_message_id"] = private_message_id
+
+    response = await (
+        supabase.schema("kok").table("intake_logs").insert(data).execute()
+    )
+    return IntakeLog(**response.data[0])
