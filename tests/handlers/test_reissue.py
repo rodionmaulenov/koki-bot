@@ -1,8 +1,9 @@
-"""Tests for handlers/reissue.py — 15 tests, 100% branch coverage."""
+"""Tests for handlers/reissue.py — 17 tests, 100% branch coverage."""
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from aiogram.types import User as TgUser
@@ -14,7 +15,8 @@ from models.enums import CourseStatus, ReissueCategory
 from models.manager import Manager
 from models.reissue import ReissueGirl
 from models.user import User as KokUser
-from templates import ReissueTemplates
+from templates import AddTemplates, ReissueTemplates
+from utils.time import TASHKENT_TZ
 from tests.handlers.conftest import (
     KOK_GROUP_ID,
     MockHolder,
@@ -30,6 +32,10 @@ MANAGER_TG_ID = 999999
 TOPIC_ID = 42
 MENU_MSG_ID = 1
 LIST_MSG_ID = 2
+
+TIME_19 = datetime(2025, 1, 15, 19, 0, 0, tzinfo=TASHKENT_TZ)
+TIME_20 = datetime(2025, 1, 15, 20, 0, 0, tzinfo=TASHKENT_TZ)
+TIME_21 = datetime(2025, 1, 15, 21, 0, 0, tzinfo=TASHKENT_TZ)
 
 
 # ── Factories ─────────────────────────────────────────────────────────────
@@ -164,7 +170,8 @@ class TestOnReissueStart:
             assert _is_alert(alerts[0])
             assert len(_sends(bot)) == 0
 
-    async def test_service_exception(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_service_exception(self, _mock_now, mocks: MockHolder) -> None:
         mocks.manager_repo.get_by_telegram_id.return_value = _manager()
         mocks.add_service.get_reissuable_girls.side_effect = RuntimeError("DB down")
         dp = await create_test_dispatcher(mocks)
@@ -176,7 +183,8 @@ class TestOnReissueStart:
             assert ReissueTemplates.error_try_later() in alerts[0].data.get("text", "")
             assert _is_alert(alerts[0])
 
-    async def test_no_girls_show_alert(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_no_girls_show_alert(self, _mock_now, mocks: MockHolder) -> None:
         """L42: show_alert=True — popup when no reissuable girls."""
         mocks.manager_repo.get_by_telegram_id.return_value = _manager()
         mocks.add_service.get_reissuable_girls.return_value = []
@@ -190,7 +198,34 @@ class TestOnReissueStart:
             assert _is_alert(alerts[0])
             assert len(_sends(bot)) == 0
 
-    async def test_happy_path_sends_list(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_20)
+    async def test_time_restricted_at_20(self, _mock_now, mocks: MockHolder) -> None:
+        mocks.manager_repo.get_by_telegram_id.return_value = _manager()
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_menu(bot)
+            await bot.click_button(_reissue_start_cb(), MENU_MSG_ID)
+            alerts = _alert_answers(bot)
+            assert len(alerts) == 1
+            assert AddTemplates.time_restricted() in alerts[0].data.get("text", "")
+            assert _is_alert(alerts[0])
+            assert len(_sends(bot)) == 0
+
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_21)
+    async def test_time_restricted_after_20(self, _mock_now, mocks: MockHolder) -> None:
+        mocks.manager_repo.get_by_telegram_id.return_value = _manager()
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp, **_bot_kw()) as bot:
+            _seed_menu(bot)
+            await bot.click_button(_reissue_start_cb(), MENU_MSG_ID)
+            alerts = _alert_answers(bot)
+            assert len(alerts) == 1
+            assert AddTemplates.time_restricted() in alerts[0].data.get("text", "")
+            assert _is_alert(alerts[0])
+            assert len(_sends(bot)) == 0
+
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_happy_path_sends_list(self, _mock_now, mocks: MockHolder) -> None:
         girls = [
             _girl(),
             _girl(course_id=200, short_name="Petrova M.", date_str="16.01"),
@@ -206,7 +241,8 @@ class TestOnReissueStart:
             text = sends[0].data.get("text", "")
             assert text == ReissueTemplates.select_girl(girls)
 
-    async def test_happy_path_keyboard_has_callbacks(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_happy_path_keyboard_has_callbacks(self, _mock_now, mocks: MockHolder) -> None:
         girls = [
             _girl(course_id=100),
             _girl(course_id=200, short_name="Petrova M."),
@@ -221,7 +257,8 @@ class TestOnReissueStart:
             assert "reissue:100" in markup
             assert "reissue:200" in markup
 
-    async def test_happy_path_callback_answered_no_alert(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_happy_path_callback_answered_no_alert(self, _mock_now, mocks: MockHolder) -> None:
         mocks.manager_repo.get_by_telegram_id.return_value = _manager()
         mocks.add_service.get_reissuable_girls.return_value = [_girl()]
         dp = await create_test_dispatcher(mocks)
@@ -231,7 +268,8 @@ class TestOnReissueStart:
             assert len(_non_alert_answers(bot)) == 1
             assert len(_alert_answers(bot)) == 0
 
-    async def test_correct_manager_id_passed(self, mocks: MockHolder) -> None:
+    @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
+    async def test_correct_manager_id_passed(self, _mock_now, mocks: MockHolder) -> None:
         mocks.manager_repo.get_by_telegram_id.return_value = _manager(id=42)
         mocks.add_service.get_reissuable_girls.return_value = [_girl()]
         dp = await create_test_dispatcher(mocks)

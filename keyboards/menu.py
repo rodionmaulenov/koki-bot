@@ -11,7 +11,7 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                 callback_data=MenuCallback(action=MenuAction.ADD).pack(),
             ),
             InlineKeyboardButton(
-                text="🔗 Ссылка",
+                text="🔗 Link",
                 callback_data=MenuCallback(action=MenuAction.REISSUE).pack(),
             ),
         ],

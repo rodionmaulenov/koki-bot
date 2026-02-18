@@ -11,12 +11,15 @@ from keyboards.reissue import reissue_list_keyboard
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
-from templates import ReissueTemplates
+from templates import AddTemplates, ReissueTemplates
 from utils.message import edit_or_send_callback
+from utils.time import get_tashkent_now
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+EVENING_CUTOFF_HOUR = 20
 
 
 @router.callback_query(MenuCallback.filter(F.action == MenuAction.REISSUE))
@@ -29,6 +32,11 @@ async def on_reissue_start(
     if manager is None:
         logger.warning("Reissue denied, not a manager: telegram_id=%s", callback.from_user.id)
         await callback.answer(ReissueTemplates.manager_only(), show_alert=True)
+        return
+
+    now = get_tashkent_now()
+    if now.hour >= EVENING_CUTOFF_HOUR:
+        await callback.answer(AddTemplates.time_restricted(), show_alert=True)
         return
 
     try:
