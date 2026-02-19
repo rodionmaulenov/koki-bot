@@ -21,7 +21,6 @@ from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
@@ -58,7 +57,6 @@ class MockHolder:
         self.manager_repo = AsyncMock(spec=ManagerRepository)
         self.manager_repo.get_by_telegram_id.return_value = None
         self.manager_repo.get_active_by_role.return_value = []
-        self.owner_repo = AsyncMock(spec=OwnerRepository)
         self.intake_log_repo = AsyncMock(spec=IntakeLogRepository)
         self.commands_messages_repo = AsyncMock(spec=CommandsMessagesRepository)
         self.commands_messages_service = AsyncMock(spec=CommandsMessagesService)
@@ -101,10 +99,6 @@ class TestProvider(Provider):
     @provide
     def manager_repo(self) -> ManagerRepository:
         return self._m.manager_repo
-
-    @provide
-    def owner_repo(self) -> OwnerRepository:
-        return self._m.owner_repo
 
     @provide
     def intake_log_repo(self) -> IntakeLogRepository:

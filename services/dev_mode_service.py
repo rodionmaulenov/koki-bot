@@ -54,15 +54,6 @@ class DevModeService:
         logger.debug("Deleted all kok data")
 
         # Delete seed users
-        if self._settings.seed_owner_id:
-            await (
-                self._supabase.schema("public")
-                .table("owners")
-                .delete()
-                .eq("telegram_id", self._settings.seed_owner_id)
-                .execute()
-            )
-
         if self._settings.seed_manager_id:
             await (
                 self._supabase.schema("public")
@@ -101,19 +92,6 @@ class DevModeService:
             return
 
         logger.info("Seeding database (dev mode)...")
-
-        if self._settings.seed_owner_id and self._settings.seed_owner_name:
-            await (
-                self._supabase.schema("public")
-                .table("owners")
-                .insert({
-                    "telegram_id": self._settings.seed_owner_id,
-                    "name": self._settings.seed_owner_name,
-                    "is_active": True,
-                })
-                .execute()
-            )
-            logger.info("Created owner: %s", self._settings.seed_owner_name)
 
         if self._settings.seed_manager_id and self._settings.seed_manager_name:
             await (

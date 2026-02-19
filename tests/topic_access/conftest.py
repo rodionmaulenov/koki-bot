@@ -132,11 +132,6 @@ def mock_manager_repo() -> AsyncMock:
 
 
 @pytest.fixture
-def mock_owner_repo() -> AsyncMock:
-    return AsyncMock()
-
-
-@pytest.fixture
 def mock_commands_repo() -> AsyncMock:
     return AsyncMock()
 

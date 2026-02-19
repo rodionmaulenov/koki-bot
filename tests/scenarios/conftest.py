@@ -25,7 +25,6 @@ from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
 from services.gemini_service import GeminiService
@@ -91,10 +90,6 @@ class ScenarioProvider(Provider):
     @provide
     def intake_log_repo(self) -> IntakeLogRepository:
         return IntakeLogRepository(self._supabase)
-
-    @provide
-    def owner_repo(self) -> OwnerRepository:
-        return OwnerRepository(self._supabase)
 
     # ── Real services (use real repos) ──
 

@@ -48,7 +48,6 @@ from models.course import Course
 from models.document import Document
 from models.intake_log import IntakeLog
 from models.manager import Manager
-from models.owner import Owner
 from models.payment_receipt import PaymentReceipt
 from models.user import User
 from repositories.commands_messages_repository import CommandsMessagesRepository
@@ -56,7 +55,6 @@ from repositories.course_repository import CourseRepository
 from repositories.document_repository import DocumentRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 
@@ -103,7 +101,6 @@ async def delete_all(supabase: AsyncClient) -> None:
     # public schema
     await supabase.table("commands_messages").delete().neq("id", 0).execute()
     await supabase.table("managers").delete().neq("id", 0).execute()
-    await supabase.table("owners").delete().neq("id", 0).execute()
 
 
 @pytest.fixture
@@ -144,11 +141,6 @@ def manager_repository(supabase: AsyncClient) -> ManagerRepository:
 
 
 @pytest.fixture
-def owner_repository(supabase: AsyncClient) -> OwnerRepository:
-    return OwnerRepository(supabase)
-
-
-@pytest.fixture
 def document_repository(supabase: AsyncClient) -> DocumentRepository:
     return DocumentRepository(supabase)
 
@@ -184,21 +176,6 @@ async def create_test_manager(
         .execute()
     )
     return Manager(**response.data[0])
-
-
-async def create_test_owner(
-    supabase: AsyncClient,
-    telegram_id: int = 641677101,
-    name: str = "Test Owner",
-    is_active: bool = True,
-) -> Owner:
-    """Create a test owner in public.owners."""
-    response = await (
-        supabase.table("owners")
-        .insert({"telegram_id": telegram_id, "name": name, "is_active": is_active})
-        .execute()
-    )
-    return Owner(**response.data[0])
 
 
 async def create_test_user(

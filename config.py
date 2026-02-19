@@ -32,8 +32,6 @@ class Settings(BaseSettings):
     error_topic_id: int | None = None
 
     # Seed data for development mode (optional)
-    seed_owner_id: int | None = None
-    seed_owner_name: str | None = None
     seed_manager_id: int | None = None
     seed_manager_name: str | None = None
 

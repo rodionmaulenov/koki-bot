@@ -12,7 +12,6 @@ from repositories.course_repository import CourseRepository
 from repositories.document_repository import DocumentRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from repositories.payment_receipt_repository import PaymentReceiptRepository
 from repositories.user_repository import UserRepository
 from services.add_service import AddService
@@ -54,13 +53,6 @@ class AppProvider(Provider):
         supabase: AsyncClient,
     ) -> ManagerRepository:
         return ManagerRepository(supabase)
-
-    @provide
-    def get_owner_repository(
-        self,
-        supabase: AsyncClient,
-    ) -> OwnerRepository:
-        return OwnerRepository(supabase)
 
     @provide
     def get_commands_messages_repository(

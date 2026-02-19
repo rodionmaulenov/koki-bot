@@ -23,7 +23,6 @@ def _mw(
         thread_id=thread_id,
         repository=repo or AsyncMock(),
         manager_repository=AsyncMock(),
-        owner_repository=AsyncMock(),
         redis=redis or AsyncMock(),
     )
 
@@ -154,7 +153,6 @@ async def test_access_denied_correct_text(_, mock_create_task):
         thread_id=THREAD_ID,
         repository=AsyncMock(),
         manager_repository=AsyncMock(),
-        owner_repository=AsyncMock(),
         redis=AsyncMock(),
         access_denied_text="Custom denied!",
     )

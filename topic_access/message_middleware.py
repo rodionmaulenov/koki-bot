@@ -10,7 +10,6 @@ from redis.asyncio import Redis
 
 from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from topic_access.access import has_access
 
 logger = logging.getLogger(__name__)
@@ -25,14 +24,12 @@ class MessageMiddleware(BaseMiddleware):
         thread_id: int,
         repository: CommandsMessagesRepository,
         manager_repository: ManagerRepository,
-        owner_repository: OwnerRepository,
         redis: Redis,
         access_denied_text: str = "🚫 У вас нет доступа",
     ) -> None:
         self._thread_id = thread_id
         self._repository = repository
         self._manager_repository = manager_repository
-        self._owner_repository = owner_repository
         self._redis = redis
         self._access_denied_text = access_denied_text
 
@@ -48,7 +45,7 @@ class MessageMiddleware(BaseMiddleware):
         if not event.from_user:
             return None
 
-        if await has_access(event.from_user.id, self._manager_repository, self._owner_repository):
+        if await has_access(event.from_user.id, self._manager_repository):
             if await self._is_blocked_by_active_flow(event.from_user.id):
                 try:
                     await event.delete()

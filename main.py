@@ -30,7 +30,6 @@ from handlers.reissue import router as reissue_router
 from handlers.video import router as video_router
 from repositories.commands_messages_repository import CommandsMessagesRepository
 from repositories.manager_repository import ManagerRepository
-from repositories.owner_repository import OwnerRepository
 from topic_access.callback_middleware import CallbackMiddleware
 from topic_access.message_middleware import MessageMiddleware
 from topic_access.tracked_bot import TrackedBot
@@ -68,7 +67,6 @@ async def main() -> None:
     bot = await container.get(TrackedBot)
     commands_messages_repository = await container.get(CommandsMessagesRepository)
     manager_repository = await container.get(ManagerRepository)
-    owner_repository = await container.get(OwnerRepository)
 
     # Telegram error notifications (optional)
     if settings.error_topic_chat_id and settings.error_topic_id:
@@ -93,7 +91,7 @@ async def main() -> None:
 
     _setup_middlewares(
         dp, settings, commands_messages_repository,
-        manager_repository, owner_repository, redis,
+        manager_repository, redis,
     )
 
     # Dev mode: cleanup and seed database
@@ -172,20 +170,17 @@ def _setup_middlewares(
     settings: Settings,
     commands_messages_repository: CommandsMessagesRepository,
     manager_repository: ManagerRepository,
-    owner_repository: OwnerRepository,
     redis: Redis,
 ) -> None:
     message_mw = MessageMiddleware(
         thread_id=settings.commands_thread_id,
         repository=commands_messages_repository,
         manager_repository=manager_repository,
-        owner_repository=owner_repository,
         redis=redis,
     )
     callback_mw = CallbackMiddleware(
         thread_id=settings.commands_thread_id,
         manager_repository=manager_repository,
-        owner_repository=owner_repository,
     )
     dp.message.outer_middleware(message_mw)
     dp.callback_query.outer_middleware(callback_mw)

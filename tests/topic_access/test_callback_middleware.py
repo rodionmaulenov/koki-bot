@@ -12,7 +12,6 @@ def _mw(thread_id: int = THREAD_ID) -> CallbackMiddleware:
     return CallbackMiddleware(
         thread_id=thread_id,
         manager_repository=AsyncMock(),
-        owner_repository=AsyncMock(),
     )
 
 
@@ -111,7 +110,7 @@ async def test_has_access_called_with_correct_args(mock_has_access):
     await mw(handler, event, {})
 
     mock_has_access.assert_called_once_with(
-        777, mw._manager_repository, mw._owner_repository,
+        777, mw._manager_repository,
     )
 
 
@@ -136,7 +135,6 @@ async def test_custom_access_denied_text():
     mw = CallbackMiddleware(
         thread_id=THREAD_ID,
         manager_repository=AsyncMock(),
-        owner_repository=AsyncMock(),
         access_denied_toast="Custom denied!",
     )
     handler = AsyncMock()
