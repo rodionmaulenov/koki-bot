@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
-INVALID_AUTO_DELETE = 300  # 5 minutes for invalid links
-USED_AUTO_DELETE = 30  # 30 seconds for "already used"
 SPAM_AUTO_DELETE = 3  # 3 seconds for "use buttons" hint
 
 # Topic icon for new registration
@@ -67,38 +65,38 @@ async def on_start(
         if manager and manager.role == "accountant":
             await message.answer(OnboardingTemplates.accountant_greeting(manager.name))
             return
-        await _send_and_auto_delete(message, OnboardingTemplates.no_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.no_link())
         return
 
     try:
         course = await course_repository.get_by_invite_code(invite_code)
     except Exception:
         logger.exception("DB error looking up invite_code=%s", invite_code)
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     if course is None:
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     if course.invite_used:
-        await _send_and_auto_delete(message, OnboardingTemplates.link_used(), USED_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.link_used())
         return
 
     if course.status == CourseStatus.EXPIRED:
         date_str = course.created_at.astimezone(TASHKENT_TZ).date().strftime("%d.%m.%Y")
-        await _send_and_auto_delete(message, OnboardingTemplates.link_expired(date_str), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.link_expired(date_str))
         return
 
     # Check date expiration
     expired = await _check_and_expire(course, course_repository)
     if expired:
         date_str = course.created_at.astimezone(TASHKENT_TZ).date().strftime("%d.%m.%Y")
-        await _send_and_auto_delete(message, OnboardingTemplates.link_expired(date_str), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.link_expired(date_str))
         return
 
     if course.status != CourseStatus.SETUP:
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     # Check if another user already started with this link
@@ -106,18 +104,18 @@ async def on_start(
         user = await user_repository.get_by_id(course.user_id)
     except Exception:
         logger.exception("DB error fetching user_id=%d", course.user_id)
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     if user is None:
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     tg_id = message.from_user.id
 
     if user.telegram_id is not None and user.telegram_id != tg_id:
         # Another person already claimed this link
-        await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+        await message.answer(OnboardingTemplates.invalid_link())
         return
 
     # Save telegram_id if not set yet
@@ -126,7 +124,7 @@ async def on_start(
             await user_repository.set_telegram_id(user.id, tg_id)
         except Exception:
             logger.exception("Failed to set telegram_id for user_id=%d", user.id)
-            await _send_and_auto_delete(message, OnboardingTemplates.invalid_link(), INVALID_AUTO_DELETE)
+            await message.answer(OnboardingTemplates.invalid_link())
             return
 
     # Check if girl is already in onboarding (re-clicked link)
@@ -619,12 +617,6 @@ async def _resend_current_step(
     # Fallback: send new message
     sent = await message.answer(text, reply_markup=keyboard)
     await state.update_data(bot_message_id=sent.message_id)
-
-
-async def _send_and_auto_delete(message: Message, text: str, delay: int) -> None:
-    """Send a message and schedule auto-deletion."""
-    sent = await message.answer(text)
-    _schedule_auto_delete(message.bot, message.chat.id, sent.message_id, delay)
 
 
 def _schedule_auto_delete(bot, chat_id: int, message_id: int, delay: int) -> None:
