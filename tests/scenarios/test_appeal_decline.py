@@ -25,7 +25,8 @@ from redis.asyncio import Redis
 from supabase import AsyncClient
 
 from config import Settings
-from handlers.appeal import TOPIC_ICON_APPEAL, TOPIC_ICON_REFUSED
+from handlers.appeal.review import TOPIC_ICON_REFUSED
+from handlers.appeal.submit import TOPIC_ICON_APPEAL
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository

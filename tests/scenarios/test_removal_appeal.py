@@ -24,7 +24,7 @@ from redis.asyncio import Redis
 from supabase import AsyncClient
 
 from config import Settings
-from handlers.appeal import TOPIC_ICON_APPEAL
+from handlers.appeal.submit import TOPIC_ICON_APPEAL
 from handlers.video.receive import TOPIC_ICON_ACTIVE
 from models.video_result import VideoResult
 from repositories.course_repository import CourseRepository

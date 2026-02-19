@@ -28,7 +28,7 @@ from handlers.video.receive import (
     TOPIC_ICON_ACTIVE,
     TOPIC_ICON_REFUSED,
 )
-from handlers.appeal import TOPIC_ICON_APPEAL
+from handlers.appeal.submit import TOPIC_ICON_APPEAL
 from models.video_result import VideoResult
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository

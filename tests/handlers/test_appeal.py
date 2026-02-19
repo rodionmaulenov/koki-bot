@@ -11,11 +11,8 @@ from aiogram.types import CallbackQuery, Update
 from aiogram.types import User as TgUser
 
 from callbacks.appeal import AppealAction, AppealCallback
-from handlers.appeal import (
-    TOPIC_ICON_ACTIVE,
-    TOPIC_ICON_APPEAL,
-    TOPIC_ICON_REFUSED,
-)
+from handlers.appeal.review import TOPIC_ICON_ACTIVE, TOPIC_ICON_REFUSED
+from handlers.appeal.submit import TOPIC_ICON_APPEAL
 from models.course import Course
 from models.enums import CourseStatus
 from models.manager import Manager
@@ -125,6 +122,7 @@ def _setup_accept(m: MockHolder, **kw: Any) -> None:
     )
     m.course_repo.accept_appeal.return_value = kw.get("accepted", True)
     m.user_repo.get_by_id.return_value = kw.get("user", _user())
+    m.manager_repo.get_by_telegram_id.return_value = _manager(telegram_id=USER_ID)
 
 
 def _setup_decline(m: MockHolder, **kw: Any) -> None:
@@ -134,6 +132,7 @@ def _setup_decline(m: MockHolder, **kw: Any) -> None:
     m.course_repo.decline_appeal.return_value = kw.get("declined", True)
     m.user_repo.get_by_id.return_value = kw.get("user", _user())
     m.manager_repo.get_by_id.return_value = kw.get("manager", _manager())
+    m.manager_repo.get_by_telegram_id.return_value = _manager(telegram_id=USER_ID)
 
 
 # ── Tracker helpers ───────────────────────────────────────────────────────
@@ -897,6 +896,7 @@ class TestOnAppealAccept:
 
     async def test_course_not_found(self, mocks: MockHolder) -> None:
         mocks.course_repo.get_by_id.return_value = None
+        mocks.manager_repo.get_by_telegram_id.return_value = _manager(telegram_id=USER_ID)
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp, user_id=USER_ID) as bot:
             _seed(bot)
@@ -1191,6 +1191,7 @@ class TestOnAppealDecline:
 
     async def test_course_not_found(self, mocks: MockHolder) -> None:
         mocks.course_repo.get_by_id.return_value = None
+        mocks.manager_repo.get_by_telegram_id.return_value = _manager(telegram_id=USER_ID)
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp, user_id=USER_ID) as bot:
             _seed(bot)
