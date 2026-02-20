@@ -11,7 +11,7 @@ from dishka.integrations.aiogram import FromDishka
 from callbacks.appeal import AppealAction, AppealCallback
 from config import Settings
 from keyboards.appeal import appeal_review_keyboard
-from models.enums import CourseStatus, RemovalReason
+
 from repositories.course_repository import CourseRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
@@ -44,24 +44,10 @@ async def on_start_appeal(
     course_repository: FromDishka[CourseRepository],
 ) -> None:
     """Girl pressed 'Апелляция' button."""
-    course = await course_repository.get_by_id(callback_data.course_id)
-    if course is None or course.status != CourseStatus.REFUSED:
-        await callback.answer(AppealTemplates.no_active_appeal(), show_alert=True)
-        return
-
-    if course.appeal_count >= AppealTemplates.MAX_APPEALS:
-        await callback.answer(AppealTemplates.no_active_appeal(), show_alert=True)
-        return
-
-    # Appeal only allowed for no_video (2h removal) and max_strikes (3 late)
-    if course.removal_reason not in RemovalReason.APPEALABLE:
-        await callback.answer(AppealTemplates.no_active_appeal(), show_alert=True)
-        return
-
-    # Set status refused → appeal (race condition protection)
-    started = await course_repository.start_appeal(course.id)
+    # Atomic: refused → appeal (protects against double-click)
+    started = await course_repository.start_appeal(callback_data.course_id)
     if not started:
-        await callback.answer(AppealTemplates.appeal_race_condition(), show_alert=True)
+        await callback.answer()
         return
 
     # Remove appeal button from the message
@@ -73,7 +59,7 @@ async def on_start_appeal(
 
     # Start FSM: ask for video (send to girl's private chat, not the callback's chat)
     await state.set_state(AppealStates.video)
-    await state.update_data(course_id=course.id)
+    await state.update_data(course_id=callback_data.course_id)
     try:
         await tg_retry(
             callback.bot.send_message,
@@ -89,7 +75,7 @@ async def on_start_appeal(
 
     logger.info(
         "Appeal started for course_id=%d by user=%d",
-        course.id, callback.from_user.id,
+        callback_data.course_id, callback.from_user.id,
     )
 
 

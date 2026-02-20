@@ -363,23 +363,29 @@ class OnboardingTemplates:
     @staticmethod
     def no_slots_left() -> str:
         return _t(
-            "Слишком поздно, нет доступных слотов. Попробуй завтра",
-            "Juda kech, bo'sh vaqt yo'q. Ertaga urinib ko'r",
+            "На сегодня нет свободного времени для регистрации, напиши своему менеджеру, тебе нужна новая ссылка! Эта действительна только сегодня.",
+            "Bugun ro'yxatdan o'tish uchun bo'sh vaqt yo'q, menejeringga yoz, senga yangi havola kerak! Bu havola faqat bugun amal qiladi.",
         )
 
     @staticmethod
     def error_try_again() -> str:
-        return _t("Ошибка, попробуй ещё раз", "Xatolik, qaytadan urinib ko'r")
+        return _t(
+            "Что-то пошло не так на сервере. Подожди пару минут и нажми кнопку ещё раз. Если ошибка повторится — напиши менеджеру.",
+            "Serverda xatolik yuz berdi. Bir-ikki daqiqa kutib, tugmani qayta bos. Agar xatolik takrorlansa — menejerga yoz.",
+        )
 
     @staticmethod
     def session_expired() -> str:
-        return _t("Сессия истекла", "Sessiya tugagan")
+        return _t(
+            "Ты не завершила регистрацию вовремя. Ссылка действует только до 23:59 в день выдачи. Напиши менеджеру — он отправит новую ссылку.",
+            "Ro'yxatdan o'tishni vaqtida tugatmadingiz. Havola faqat berilgan kuni 23:59 gacha amal qiladi. Menejerga yozing — yangi havola yuboradi.",
+        )
 
     @staticmethod
     def link_expired_contact_manager() -> str:
         return _t(
-            "Ссылка истекла. Обратись к менеджеру",
-            "Havola muddati tugagan. Menejerga murojaat qil",
+            "Ты не завершила регистрацию вовремя. Ссылка действует только до 23:59 в день выдачи. Напиши менеджеру — он отправит новую ссылку.",
+            "Ro'yxatdan o'tishni vaqtida tugatmadingiz. Havola faqat berilgan kuni 23:59 gacha amal qiladi. Menejerga yozing — yangi havola yuboradi.",
         )
 
     # --- Шаги онбординга ---

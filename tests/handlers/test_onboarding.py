@@ -451,7 +451,7 @@ class TestOnInstructionsUnderstood:
             await bot.click_button(CB_UNDERSTOOD, msg_id)
 
             answers = bot.get_callback_answers()
-            assert any("Сессия истекла" in (a.data.get("text") or "") for a in answers)
+            assert any("не завершила регистрацию вовремя" in (a.data.get("text") or "") for a in answers)
             assert await _get_fsm_state(dp, bot.user_id, bot.chat_id) is None
 
 
@@ -508,7 +508,7 @@ class TestOnCycleDaySelected:
                 await bot.click_button(CB_DAY_1, msg_id)
 
                 answers = bot.get_callback_answers()
-                assert any("Слишком поздно" in (a.data.get("text") or "") for a in answers)
+                assert any("нет свободного времени" in (a.data.get("text") or "") for a in answers)
                 # State should NOT change to intake_time
                 state = await _get_fsm_state(dp, bot.user_id, bot.chat_id)
                 assert state == OnboardingStates.cycle_day.state
@@ -776,7 +776,7 @@ class TestOnAcceptTerms:
             await bot.click_button(CB_ACCEPT, msg_id)
 
             answers = bot.get_callback_answers()
-            assert any("Ошибка" in (a.data.get("text") or "") for a in answers)
+            assert any("пошло не так" in (a.data.get("text") or "") for a in answers)
             assert await _get_fsm_state(dp, bot.user_id, bot.chat_id) is None
 
     async def test_activate_exception(self, mocks: MockHolder):
@@ -794,7 +794,7 @@ class TestOnAcceptTerms:
             await bot.click_button(CB_ACCEPT, msg2_id)
 
             answers = bot.get_callback_answers()
-            assert any("Ошибка" in (a.data.get("text") or "") for a in answers)
+            assert any("пошло не так" in (a.data.get("text") or "") for a in answers)
 
     async def test_activate_returns_false(self, mocks: MockHolder):
         """Already activated (race condition) → silent finish, state cleared."""
@@ -1375,7 +1375,7 @@ class TestOnExpiredCallback:
             await bot.click_button(CB_UNDERSTOOD, msg_id)
 
             answers = bot.get_callback_answers()
-            assert any("Ссылка истекла" in (a.data.get("text") or "") for a in answers)
+            assert any("не завершила регистрацию вовремя" in (a.data.get("text") or "") for a in answers)
 
 
 # ── TestCheckAndExpire ────────────────────────────────────────────────────
@@ -1453,7 +1453,7 @@ class TestCheckExpirationCallback:
             await bot.click_button(CB_UNDERSTOOD, msg_id)
 
             answers = bot.get_callback_answers()
-            assert any("Сессия истекла" in (a.data.get("text") or "") for a in answers)
+            assert any("не завершила регистрацию вовремя" in (a.data.get("text") or "") for a in answers)
             assert await _get_fsm_state(dp, bot.user_id, bot.chat_id) is None
 
     async def test_no_course_date_clears_state(self, mocks: MockHolder):
@@ -1469,7 +1469,7 @@ class TestCheckExpirationCallback:
             await bot.click_button(CB_UNDERSTOOD, msg_id)
 
             answers = bot.get_callback_answers()
-            assert any("Сессия истекла" in (a.data.get("text") or "") for a in answers)
+            assert any("не завершила регистрацию вовремя" in (a.data.get("text") or "") for a in answers)
 
     async def test_same_day_passes(self, mocks: MockHolder):
         """course_date == today → not expired, handler proceeds."""

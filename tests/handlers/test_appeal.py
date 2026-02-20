@@ -323,39 +323,15 @@ def _make_callback_update(callback_data: str) -> Update:
 
 class TestOnStartAppeal:
 
-    async def test_course_not_found(self, mocks: MockHolder) -> None:
-        mocks.course_repo.get_by_id.return_value = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            assert len(_alert_answers(bot)) == 1
-
-    async def test_course_not_refused(self, mocks: MockHolder) -> None:
-        _setup_start(mocks, course=_course(status=CourseStatus.ACTIVE))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            assert len(_alert_answers(bot)) == 1
-
-    async def test_max_appeals_reached(self, mocks: MockHolder) -> None:
-        _setup_start(mocks, course=_course(appeal_count=AppealTemplates.MAX_APPEALS))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            assert len(_alert_answers(bot)) == 1
-
-    async def test_race_condition(self, mocks: MockHolder) -> None:
+    async def test_double_click(self, mocks: MockHolder) -> None:
         _setup_start(mocks, started=False)
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp, user_id=USER_ID) as bot:
             _seed(bot)
             await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            alerts = _alert_answers(bot)
-            assert len(alerts) == 1
-            assert AppealTemplates.appeal_race_condition() in alerts[0].data.get("text", "")
+            # Silent answer, no alert
+            assert len(_answers(bot)) >= 1
+            assert len(_alert_answers(bot)) == 0
 
     async def test_happy_path(self, mocks: MockHolder) -> None:
         _setup_start(mocks)
@@ -415,76 +391,10 @@ class TestOnStartAppeal:
             # No edit (no message to edit)
             assert len(_edit_markups(bot)) == 0
 
-            # FSM still set
+            # start_appeal called, FSM set, girl receives ask_video
+            mocks.course_repo.start_appeal.assert_called_once()
             assert await _get_fsm_state(dp) == AppealStates.video.state
             assert len(_private_sends(bot)) == 1
-
-    async def test_blocked_by_manager_reject(self, mocks: MockHolder) -> None:
-        """removal_reason=manager_reject → appeal denied."""
-        _setup_start(mocks, course=_course(removal_reason="manager_reject"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            ans = _answers(bot)
-            assert any(a.data.get("show_alert") == "true" for a in ans)
-            mocks.course_repo.start_appeal.assert_not_called()
-
-    async def test_blocked_by_review_deadline(self, mocks: MockHolder) -> None:
-        """removal_reason=review_deadline → appeal denied."""
-        _setup_start(mocks, course=_course(removal_reason="review_deadline"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            ans = _answers(bot)
-            assert any(a.data.get("show_alert") == "true" for a in ans)
-            mocks.course_repo.start_appeal.assert_not_called()
-
-    async def test_blocked_by_reshoot_expired(self, mocks: MockHolder) -> None:
-        """removal_reason=reshoot_expired → appeal denied."""
-        _setup_start(mocks, course=_course(removal_reason="reshoot_expired"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            ans = _answers(bot)
-            assert any(a.data.get("show_alert") == "true" for a in ans)
-            mocks.course_repo.start_appeal.assert_not_called()
-
-    async def test_allowed_for_no_video(self, mocks: MockHolder) -> None:
-        """removal_reason=no_video → appeal allowed."""
-        _setup_start(mocks, course=_course(removal_reason="no_video"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            mocks.course_repo.start_appeal.assert_called_once()
-            assert await _get_fsm_state(dp) == AppealStates.video.state
-
-    async def test_allowed_for_max_strikes(self, mocks: MockHolder) -> None:
-        """removal_reason=max_strikes → appeal allowed."""
-        _setup_start(mocks, course=_course(removal_reason="max_strikes"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            mocks.course_repo.start_appeal.assert_called_once()
-            assert await _get_fsm_state(dp) == AppealStates.video.state
-
-    async def test_blocked_legacy_null_removal_reason(self, mocks: MockHolder) -> None:
-        """removal_reason=None (legacy course before migration) → appeal denied."""
-        _setup_start(mocks, course=_course(removal_reason=None))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            assert len(_alert_answers(bot)) == 1
-            mocks.course_repo.start_appeal.assert_not_called()
-            assert await _get_fsm_state(dp) is None
-
-    async def test_blocked_by_appeal_declined(self, mocks: MockHolder) -> None:
-        """removal_reason=appeal_declined → appeal denied (can't re-appeal declined)."""
-        _setup_start(mocks, course=_course(removal_reason="appeal_declined"))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-            assert len(_alert_answers(bot)) == 1
-            mocks.course_repo.start_appeal.assert_not_called()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1676,78 +1586,6 @@ class TestScenarioMaxStrikesAppealDeclined:
             )
 
 
-class TestScenarioReshootExpiredNoAppeal:
-    """Girl removed for reshoot_expired → clicks appeal → blocked.
-
-    Verifies: no DB changes, no messages sent, no topic operations.
-    """
-
-    async def test_appeal_blocked(self, mocks: MockHolder) -> None:
-        course = _course(removal_reason="reshoot_expired", appeal_count=0)
-        _setup_start(mocks, course=course)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-
-            # Alert shown
-            alerts = _alert_answers(bot)
-            assert len(alerts) == 1
-            assert AppealTemplates.no_active_appeal() in alerts[0].data.get("text", "")
-
-            # NO DB changes
-            mocks.course_repo.start_appeal.assert_not_called()
-            mocks.course_repo.save_appeal_data.assert_not_called()
-            mocks.course_repo.accept_appeal.assert_not_called()
-
-            # NO messages to girl (besides the alert)
-            assert len(_private_sends(bot)) == 0
-
-            # NO topic operations
-            assert len(_forum_edits(bot)) == 0
-            assert len(_forum_closes(bot)) == 0
-            assert len(_forum_reopens(bot)) == 0
-            assert len(_videos_sent(bot)) == 0
-
-            # NO manager notifications
-            assert len(_manager_sends(bot)) == 0
-            assert len(_group_sends(bot, KOK_GENERAL_TOPIC_ID)) == 0
-
-            # FSM NOT entered
-            assert await _get_fsm_state(dp) is None
-
-
-class TestScenarioManagerRejectNoAppeal:
-    """Girl removed by manager_reject → clicks appeal → blocked.
-
-    Verifies: identical to reshoot_expired — full block, no side effects.
-    """
-
-    async def test_appeal_blocked(self, mocks: MockHolder) -> None:
-        course = _course(removal_reason="manager_reject", appeal_count=0)
-        _setup_start(mocks, course=course)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-
-            # Alert shown
-            alerts = _alert_answers(bot)
-            assert len(alerts) == 1
-            assert AppealTemplates.no_active_appeal() in alerts[0].data.get("text", "")
-
-            # NO DB changes
-            mocks.course_repo.start_appeal.assert_not_called()
-
-            # NO messages, NO topic ops, NO FSM
-            assert len(_private_sends(bot)) == 0
-            assert len(_forum_edits(bot)) == 0
-            assert len(_forum_closes(bot)) == 0
-            assert len(_forum_reopens(bot)) == 0
-            assert len(_manager_sends(bot)) == 0
-            assert await _get_fsm_state(dp) is None
-
-
 class TestScenarioSecondAppealAfterAccept:
     """Girl used 1 appeal (accepted) → removed again for no_video → second appeal → accepted.
 
@@ -1811,25 +1649,3 @@ class TestScenarioSecondAppealAfterAccept:
             )
 
 
-class TestScenarioThirdAppealBlocked:
-    """Girl already used 2 appeals → removed again → clicks appeal → blocked (max reached)."""
-
-    async def test_max_appeals_exhausted(self, mocks: MockHolder) -> None:
-        course = _course(removal_reason="no_video", appeal_count=2)
-        _setup_start(mocks, course=course)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
-            _seed(bot)
-            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
-
-            # Alert shown — max appeals
-            alerts = _alert_answers(bot)
-            assert len(alerts) == 1
-
-            # NO DB changes, NO FSM
-            mocks.course_repo.start_appeal.assert_not_called()
-            assert await _get_fsm_state(dp) is None
-
-            # NO messages, NO topic ops
-            assert len(_private_sends(bot)) == 0
-            assert len(_forum_edits(bot)) == 0
