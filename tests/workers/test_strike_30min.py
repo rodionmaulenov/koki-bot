@@ -8,7 +8,7 @@ Key logic tested:
 - User edge cases: not found / no telegram_id × is_removal / is_warning
 - Boundary: late_count == max_strikes → is_removal=True (>= not >)
 """
-from datetime import time
+from datetime import date, time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramForbiddenError
@@ -35,12 +35,13 @@ def _course(
     intake_time: time | None = time(12, 0),
     late_dates: list[str] | None = None,
     late_count: int = 0,
+    start_date: date = date(2025, 6, 10),
 ) -> Course:
     return Course(
         id=course_id, user_id=user_id, status=CourseStatus.ACTIVE,
         current_day=current_day, appeal_count=appeal_count,
         intake_time=intake_time, late_dates=late_dates or [],
-        late_count=late_count, created_at=JUN_15,
+        late_count=late_count, start_date=start_date, created_at=JUN_15,
     )
 
 
@@ -117,13 +118,13 @@ class TestRun:
 
         vs.record_late.assert_not_called()
 
-    async def test_next_day_is_current_day_plus_1(self):
-        """current_day=5 → has_log_today called with day=6."""
+    async def test_expected_day_from_start_date(self):
+        """start_date=June 10, now=June 15 → expected_day=6."""
         intake_log_repo = AsyncMock()
         intake_log_repo.has_log_today = AsyncMock(return_value=True)
         course_repo = AsyncMock()
         course_repo.get_active_in_intake_window = AsyncMock(
-            return_value=[_course(course_id=7, current_day=5)],
+            return_value=[_course(course_id=7, start_date=date(2025, 6, 10))],
         )
 
         p1, p2, p3, p4 = _patches()
@@ -132,6 +133,55 @@ class TestRun:
                       AsyncMock(), AsyncMock(), intake_log_repo, _video_service())
 
         intake_log_repo.has_log_today.assert_called_once_with(7, 6)
+
+    async def test_ai_auto_approved_skips_strike(self):
+        """AI auto-approved → current_day already advanced, but expected_day still correct."""
+        vs = _video_service()
+        intake_log_repo = AsyncMock()
+        intake_log_repo.has_log_today = AsyncMock(return_value=True)
+        course_repo = AsyncMock()
+        # current_day=6 (AI advanced it), but start_date=June 10, now=June 15 → day=6
+        course_repo.get_active_in_intake_window = AsyncMock(
+            return_value=[_course(current_day=6, start_date=date(2025, 6, 10))],
+        )
+
+        p1, p2, p3, p4 = _patches()
+        with p1, p2, p3, p4:
+            await run(AsyncMock(), AsyncMock(), make_settings(), course_repo,
+                      AsyncMock(), AsyncMock(), intake_log_repo, vs)
+
+        # expected_day=6 (not 7), so has_log finds the log → no strike
+        intake_log_repo.has_log_today.assert_called_once_with(1, 6)
+        vs.record_late.assert_not_called()
+
+    async def test_midnight_crossing_uses_yesterday(self):
+        """Worker runs at 00:01 → intake_date is yesterday → correct day."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        midnight_now = datetime(2025, 6, 16, 0, 1, tzinfo=ZoneInfo("Asia/Tashkent"))
+        vs = _video_service()
+        intake_log_repo = AsyncMock()
+        intake_log_repo.has_log_today = AsyncMock(return_value=True)
+        course_repo = AsyncMock()
+        # start_date=June 10, intake was June 15 (yesterday) → day=6
+        course_repo.get_active_in_intake_window = AsyncMock(
+            return_value=[_course(current_day=6, start_date=date(2025, 6, 10))],
+        )
+
+        patches = (
+            patch(f"{_PATCH}.get_tashkent_now", return_value=midnight_now),
+            patch(f"{_PATCH}.calculate_time_range_after", return_value=(time(23, 28), time(23, 38))),
+            patch(f"{_PATCH}.was_sent", new_callable=AsyncMock, return_value=False),
+            patch(f"{_PATCH}.mark_sent", new_callable=AsyncMock),
+        )
+        with patches[0], patches[1], patches[2], patches[3]:
+            await run(AsyncMock(), AsyncMock(), make_settings(), course_repo,
+                      AsyncMock(), AsyncMock(), intake_log_repo, vs)
+
+        # intake_date = (00:01 - 30min).date() = June 15 → day=6
+        intake_log_repo.has_log_today.assert_called_once_with(1, 6)
+        vs.record_late.assert_not_called()
 
     async def test_already_late_today_marks_sent_and_skips(self):
         """today in late_dates → mark_sent called, record_late NOT called."""

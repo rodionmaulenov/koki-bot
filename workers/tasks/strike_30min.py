@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
@@ -48,9 +49,10 @@ async def run(
         if await was_sent(redis, course.id, REMINDER_TYPE):
             continue
 
-        # Check if video already sent today (current_day + 1)
-        next_day = course.current_day + 1
-        has_log = await intake_log_repository.has_log_today(course.id, next_day)
+        # Check if video already sent for this intake date
+        intake_date = (now - timedelta(minutes=30)).date()
+        expected_day = (intake_date - course.start_date).days + 1
+        has_log = await intake_log_repository.has_log_today(course.id, expected_day)
         if has_log:
             continue
 
