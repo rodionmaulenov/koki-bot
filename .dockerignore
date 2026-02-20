@@ -73,6 +73,5 @@ docker-compose*.yml
 supabase/
 migrations/
 temp/
-assets/
 *.log
 logs/
