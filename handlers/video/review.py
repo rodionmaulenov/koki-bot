@@ -7,14 +7,13 @@ from dishka.integrations.aiogram import FromDishka
 
 from callbacks.video import VideoAction, VideoCallback
 from config import Settings
-from utils.time import calculate_appeal_deadline, get_tashkent_now
-from keyboards.appeal import appeal_button
+from utils.time import get_tashkent_now
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from services.video_service import LATE_THRESHOLD_MINUTES, VideoService
-from templates import AppealTemplates, VideoTemplates, fallback_manager_name, format_remaining
+from templates import VideoTemplates, fallback_manager_name, format_remaining
 from utils.telegram_retry import tg_retry
 
 logger = logging.getLogger(__name__)
@@ -38,7 +37,6 @@ async def on_confirm(
     intake_log_repository: FromDishka[IntakeLogRepository],
     course_repository: FromDishka[CourseRepository],
     user_repository: FromDishka[UserRepository],
-    manager_repository: FromDishka[ManagerRepository],
     video_service: FromDishka[VideoService],
     settings: FromDishka[Settings],
 ) -> None:
@@ -65,30 +63,18 @@ async def on_confirm(
         intake_log.delay_minutes is not None
         and intake_log.delay_minutes > LATE_THRESHOLD_MINUTES
     )
-    is_removal = False
     late_count = 0
-    late_dates: list[str] = []
     max_strikes = video_service.get_max_strikes(course)
 
     if is_late:
         try:
-            late_count, late_dates = await video_service.record_late(course)
-            is_removal = late_count >= max_strikes
+            late_count, _ = await video_service.record_late(course)
         except Exception:
             logger.exception("Failed to record late for course_id=%d", course.id)
             is_late = False  # Strike not recorded → don't show late warning
 
-    appeal_dl = None
-    if is_removal:
-        # course.current_day is the OLD value (before confirm_intake updated DB)
-        # — this is intentional: we're rolling back to the pre-confirm state
-        appeal_dl = calculate_appeal_deadline(get_tashkent_now(), course.intake_time)
-        await video_service.undo_day_and_refuse(
-            course.id, course.current_day, appeal_deadline=appeal_dl,
-        )
-
-    # 1.6 Completion check (confirmed + last day + not removed)
-    is_completed = not is_removal and intake_log.day >= course.total_days
+    # 1.6 Completion check (confirmed + last day)
+    is_completed = intake_log.day >= course.total_days
     if is_completed:
         try:
             is_completed = await video_service.complete_course(course.id)
@@ -96,16 +82,8 @@ async def on_confirm(
             logger.exception("Failed to complete course_id=%d", course.id)
             is_completed = False
 
-    # 2. Edit topic message: remove buttons, show confirmed/removal/completion text
-    # Appeal button only in girl's private chat, NOT in topic (manager could press it)
-    has_appeal = is_removal and course.appeal_count < AppealTemplates.MAX_APPEALS
-    appeal_markup = appeal_button(course.id) if has_appeal else None
-    if is_removal:
-        dates_str = VideoTemplates.format_late_dates(late_dates)
-        await _edit_callback_message(
-            callback, VideoTemplates.topic_late_removed(dates_str),
-        )
-    elif is_completed:
+    # 2. Edit topic message: remove buttons, show confirmed/completion text
+    if is_completed:
         await _edit_callback_message(
             callback,
             VideoTemplates.topic_completed(intake_log.day, course.total_days),
@@ -119,19 +97,7 @@ async def on_confirm(
     # 3. Edit girl's private message
     user = await user_repository.get_by_id(course.user_id)
     if user and user.telegram_id and intake_log.private_message_id:
-        if is_removal:
-            manager = await manager_repository.get_by_id(user.manager_id)
-            manager_name = manager.name if manager else fallback_manager_name()
-            dates_str = VideoTemplates.format_late_dates(late_dates)
-            deadline_str = appeal_dl.strftime("%d.%m %H:%M") if has_appeal and appeal_dl else None
-            await _edit_private_message(
-                callback.bot,
-                user.telegram_id,
-                intake_log.private_message_id,
-                VideoTemplates.private_late_removed(dates_str, manager_name, deadline_str),
-                reply_markup=appeal_markup,
-            )
-        elif is_completed:
+        if is_completed:
             await _edit_private_message(
                 callback.bot,
                 user.telegram_id,
@@ -156,33 +122,7 @@ async def on_confirm(
             )
 
     # 4. Topic icon + late warning / completion / first day
-    if is_removal and user and user.topic_id:
-        # Change icon → ❗️
-        try:
-            await tg_retry(
-                callback.bot.edit_forum_topic,
-                chat_id=settings.kok_group_id,
-                message_thread_id=user.topic_id,
-                icon_custom_emoji_id=str(TOPIC_ICON_REFUSED),
-            )
-        except Exception:
-            logger.warning("Failed to change topic icon for topic_id=%d", user.topic_id)
-        # Notify general topic
-        manager = await manager_repository.get_by_id(user.manager_id)
-        manager_name = manager.name if manager else fallback_manager_name()
-        kwargs: dict[str, object] = {
-            "chat_id": settings.kok_group_id,
-            "text": VideoTemplates.general_manager_rejected(
-                manager_name, user.name, user.topic_id, settings.kok_group_id,
-            ),
-        }
-        if settings.kok_general_topic_id:
-            kwargs["message_thread_id"] = settings.kok_general_topic_id
-        try:
-            await tg_retry(callback.bot.send_message, **kwargs)
-        except Exception:
-            logger.warning("Failed to send late removal to general topic")
-    elif is_completed and user and user.topic_id:
+    if is_completed and user and user.topic_id:
         # Change icon → ✅ + close topic
         try:
             await tg_retry(
@@ -228,9 +168,7 @@ async def on_confirm(
     logger.info(
         "Manager %s confirmed day %d for course_id=%d%s",
         callback.from_user.id, intake_log.day, course.id,
-        " (COMPLETED)" if is_completed else (
-            " (LATE REMOVAL)" if is_removal else (" (late)" if is_late else "")
-        ),
+        " (COMPLETED)" if is_completed else (" (late)" if is_late else ""),
     )
 
 

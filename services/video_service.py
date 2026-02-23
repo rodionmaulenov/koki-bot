@@ -283,16 +283,3 @@ class VideoService:
         )
         return new_count, new_dates
 
-    async def undo_day_and_refuse(
-        self, course_id: int, original_day: int,
-        appeal_deadline: datetime | None = None,
-    ) -> None:
-        """3rd strike: undo day increment, refuse course."""
-        await self._course_repo.update_current_day(course_id, original_day)
-        await self._course_repo.set_refused(
-            course_id, removal_reason=RemovalReason.MAX_STRIKES,
-            appeal_deadline=appeal_deadline,
-        )
-        logger.info(
-            "Final strike: undid day, refused course_id=%d", course_id,
-        )

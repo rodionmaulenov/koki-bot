@@ -10,7 +10,6 @@ from dishka.integrations.aiogram import FromDishka
 from google.genai import errors as genai_errors
 
 from config import Settings
-from keyboards.appeal import appeal_button
 from keyboards.video import reshoot_review_keyboard, review_keyboard
 from models.course import Course
 from models.enums import CourseStatus
@@ -26,9 +25,9 @@ from services.video_service import (
     VideoService,
     WindowStatus,
 )
-from templates import AppealTemplates, VideoTemplates, fallback_manager_name, format_remaining
+from templates import VideoTemplates, format_remaining
 from utils.telegram_retry import tg_retry
-from utils.time import calculate_appeal_deadline, get_tashkent_now
+from utils.time import get_tashkent_now
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +38,6 @@ PRIVATE_FILTER = F.chat.type == "private"
 
 # Topic icon for active course (girl started taking pills)
 TOPIC_ICON_ACTIVE = 5310094636159607472  # 💊
-# Topic icon for refused course
-TOPIC_ICON_REFUSED = 5379748062124056162  # ❗️
 # Topic icon for completed course
 TOPIC_ICON_COMPLETED = 5368324170671202286  # ✅
 # Topic icon for reshoot waiting
@@ -296,33 +293,21 @@ async def _handle_video(
         and intake_log.delay_minutes > LATE_THRESHOLD_MINUTES
     )
     late_count = 0
-    late_dates: list[str] = []
-    is_removal = False
     max_strikes = video_service.get_max_strikes(course)
 
     if is_late:
         try:
-            late_count, late_dates = await video_service.record_late(course)
-            is_removal = late_count >= max_strikes
+            late_count, _ = await video_service.record_late(course)
         except Exception:
             logger.warning("record_late failed, retrying course_id=%d", course.id)
             try:
-                late_count, late_dates = await video_service.record_late(course)
-                is_removal = late_count >= max_strikes
+                late_count, _ = await video_service.record_late(course)
             except Exception:
                 logger.exception("record_late retry failed for course_id=%d", course.id)
                 is_late = False
 
-    if is_removal:
-        # course.current_day is the OLD value (before record_intake updated DB)
-        # — this is intentional: we're rolling back to the pre-record state
-        appeal_dl = calculate_appeal_deadline(get_tashkent_now(), course.intake_time)
-        await video_service.undo_day_and_refuse(
-            course.id, course.current_day, appeal_deadline=appeal_dl,
-        )
-
-    # 7.6 Completion check (approved + last day + not removed)
-    is_completed = approved and not is_removal and next_day >= course.total_days
+    # 7.6 Completion check (approved + last day)
+    is_completed = approved and next_day >= course.total_days
     if is_completed:
         try:
             is_completed = await video_service.complete_course(course.id)
@@ -331,19 +316,7 @@ async def _handle_video(
             is_completed = False
 
     # 8. Notify girl
-    if is_removal:
-        manager = await manager_repository.get_by_id(user.manager_id) if user else None
-        manager_name = manager.name if manager else fallback_manager_name()
-        dates_str = VideoTemplates.format_late_dates(late_dates)
-        has_appeal = course.appeal_count < AppealTemplates.MAX_APPEALS
-        markup = appeal_button(course.id) if has_appeal else None
-        deadline_str = appeal_dl.strftime("%d.%m %H:%M") if has_appeal else None
-        await _edit_safe(
-            processing_msg,
-            VideoTemplates.private_late_removed(dates_str, manager_name, deadline_str),
-            reply_markup=markup,
-        )
-    elif is_completed:
+    if is_completed:
         await _edit_safe(
             processing_msg,
             VideoTemplates.private_completed(course.total_days),
@@ -362,7 +335,7 @@ async def _handle_video(
         await _edit_safe(processing_msg, VideoTemplates.pending_review())
 
     # 9. Save private message ID for later editing (manager confirm/reject/reshoot)
-    if not is_removal and not is_completed:
+    if not is_completed:
         try:
             await video_service.save_private_message_id(
                 intake_log.id, processing_msg.message_id,
@@ -375,13 +348,7 @@ async def _handle_video(
     # 10. Send to topic (user already fetched above — no double query)
     topic_id = user.topic_id if user else None
 
-    if is_removal and topic_id:
-        dates_str = VideoTemplates.format_late_dates(late_dates)
-        await _send_late_removal_to_topic(
-            message.bot, settings, topic_id, file_id, video_type,
-            dates_str, user, course, manager_repository,
-        )
-    elif is_completed and topic_id:
+    if is_completed and topic_id:
         await _send_completion_to_topic(
             message.bot, settings, topic_id, file_id, video_type,
             next_day, course.total_days,
@@ -397,7 +364,7 @@ async def _handle_video(
             )
 
     # 11. Notify manager if pending review
-    if not approved and not is_removal and not is_completed and user:
+    if not approved and not is_completed and user:
         await _notify_manager(
             message.bot, settings, user, course,
             video_service, manager_repository,
@@ -731,76 +698,6 @@ async def _send_completion_to_topic(
         )
     except Exception:
         logger.warning("Failed to close topic_id=%d", topic_id)
-
-
-async def _send_late_removal_to_topic(
-    bot: Bot,
-    settings: Settings,
-    topic_id: int,
-    file_id: str,
-    video_type: VideoType,
-    dates_str: str,
-    user: User | None,
-    course: Course,
-    manager_repository: ManagerRepository,
-) -> None:
-    """Send video + removal message to topic, change icon → ❗️, notify general."""
-    # 1. Send video
-    try:
-        if video_type == VideoType.VIDEO_NOTE:
-            await tg_retry(
-                bot.send_video_note,
-                chat_id=settings.kok_group_id,
-                message_thread_id=topic_id,
-                video_note=file_id,
-            )
-        else:
-            await tg_retry(
-                bot.send_video,
-                chat_id=settings.kok_group_id,
-                message_thread_id=topic_id,
-                video=file_id,
-            )
-    except Exception:
-        logger.exception("Failed to send video to topic_id=%d", topic_id)
-        return
-
-    # 2. Send removal text (no appeal button in topic — only in girl's private chat)
-    try:
-        await tg_retry(
-            bot.send_message,
-            chat_id=settings.kok_group_id,
-            message_thread_id=topic_id,
-            text=VideoTemplates.topic_late_removed(dates_str),
-        )
-    except Exception:
-        logger.exception("Failed to send late removal to topic_id=%d", topic_id)
-
-    # 3. Change icon → ❗️
-    try:
-        await tg_retry(
-            bot.edit_forum_topic,
-            chat_id=settings.kok_group_id,
-            message_thread_id=topic_id,
-            icon_custom_emoji_id=str(TOPIC_ICON_REFUSED),
-        )
-    except Exception:
-        logger.warning("Failed to change topic icon for topic_id=%d", topic_id)
-
-    # 4. Notify general topic
-    if user:
-        kwargs: dict[str, object] = {
-            "chat_id": settings.kok_group_id,
-            "text": VideoTemplates.general_late_removed(
-                user.name, user.topic_id, settings.kok_group_id,
-            ),
-        }
-        if settings.kok_general_topic_id:
-            kwargs["message_thread_id"] = settings.kok_general_topic_id
-        try:
-            await tg_retry(bot.send_message, **kwargs)
-        except Exception:
-            logger.warning("Failed to send late removal to general topic")
 
 
 async def _send_late_warning_to_topic(

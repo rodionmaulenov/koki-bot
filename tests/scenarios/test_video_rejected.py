@@ -17,7 +17,7 @@ import pytest
 from freezegun import freeze_time
 from supabase import AsyncClient
 
-from handlers.video.receive import TOPIC_ICON_REFUSED
+from handlers.video.review import TOPIC_ICON_REFUSED
 from models.video_result import VideoResult
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository

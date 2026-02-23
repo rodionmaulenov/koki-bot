@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
-from unittest.mock import ANY
 
 from aiogram.types import Chat, Message, Update, VideoNote
 
 from handlers.video.receive import (
     TOPIC_ICON_ACTIVE,
     TOPIC_ICON_COMPLETED,
-    TOPIC_ICON_REFUSED,
 )
 from models.course import Course
 from models.enums import CourseStatus
@@ -18,7 +16,7 @@ from models.manager import Manager
 from models.user import User as KokUser
 from models.video_result import VideoResult
 from services.video_service import WindowStatus
-from templates import AppealTemplates, VideoTemplates
+from templates import VideoTemplates
 from tests.handlers.conftest import (
     KOK_GENERAL_TOPIC_ID,
     KOK_GROUP_ID,
@@ -701,136 +699,6 @@ class TestHandleVideoLateStrikes:
             assert not any("Опоздание" in t for t in texts)
 
 
-# ── TestHandleVideoRemoval ────────────────────────────────────────────────
-
-
-class TestHandleVideoRemoval:
-    """Tests for 3rd strike removal (lines 302-326)."""
-
-    def _setup_removal(self, mocks: MockHolder, **kw):
-        """Configure mocks for removal scenario."""
-        dates = [FIXED_NOW.isoformat()] * 3
-        _setup_happy_path(
-            mocks,
-            intake_log=_make_intake_log(delay_minutes=31),
-            late_result=(3, dates),
-            max_strikes=kw.get("max_strikes", 3),
-            course=kw.get("course", _make_course()),
-            manager=kw.get("manager", _make_manager()),
-        )
-
-    async def test_removal_on_max_strikes(self, mocks: MockHolder):
-        """late_count=3, max=3 → undo_day_and_refuse called."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            mocks.video_service.undo_day_and_refuse.assert_called_once_with(
-                10, 5, appeal_deadline=ANY,
-            )
-
-    async def test_removal_private_message(self, mocks: MockHolder):
-        """Removal → 'опоздала слишком много раз'."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            bot.assert_last_bot_message_contains("опоздала слишком много раз")
-
-    async def test_removal_appeal_button(self, mocks: MockHolder):
-        """appeal_count=0 < MAX_APPEALS → appeal button shown."""
-        self._setup_removal(mocks, course=_make_course(appeal_count=0))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            edits = bot.get_edited_messages()
-            markups = [e.data.get("reply_markup") for e in edits if e.data.get("reply_markup")]
-            assert len(markups) >= 1
-
-    async def test_removal_no_appeal_button(self, mocks: MockHolder):
-        """appeal_count >= MAX_APPEALS → no appeal button."""
-        self._setup_removal(
-            mocks,
-            course=_make_course(appeal_count=AppealTemplates.MAX_APPEALS),
-        )
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            # Edit has no reply_markup (or None)
-            edits = bot.get_edited_messages()
-            last_edit = edits[-1] if edits else None
-            if last_edit:
-                assert last_edit.data.get("reply_markup") is None
-
-    async def test_removal_topic_notified(self, mocks: MockHolder):
-        """Removal → video + removal text + icon ❗️ sent to topic."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            # Video sent to topic
-            assert len(_get_topic_video_notes(bot)) == 1
-            # Removal text sent
-            topic_msgs = _get_topic_sends(bot)
-            texts = [r.data.get("text", "") for r in topic_msgs]
-            assert any("Снята с программы" in t for t in texts)
-            # Icon changed to ❗️
-            edit_reqs = _get_edit_topic_reqs(bot)
-            icons = [r.data.get("icon_custom_emoji_id") for r in edit_reqs]
-            assert str(TOPIC_ICON_REFUSED) in icons
-
-    async def test_removal_no_manager_notify(self, mocks: MockHolder):
-        """Removal → _notify_manager NOT called (no DM to manager)."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            assert len(_get_manager_dms(bot)) == 0
-
-    async def test_removal_private_msg_not_saved(self, mocks: MockHolder):
-        """Removal → save_private_message_id NOT called."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            mocks.video_service.save_private_message_id.assert_not_called()
-
-    async def test_removal_manager_not_found(self, mocks: MockHolder):
-        """Removal with manager=None → manager_name='менеджер' in private message."""
-        self._setup_removal(mocks, manager=None)
-        mocks.manager_repo.get_by_id.return_value = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            bot.assert_last_bot_message_contains("менеджер")
-
-    async def test_removal_topic_with_video_type(self, mocks: MockHolder):
-        """Removal with VIDEO (not VIDEO_NOTE) → sendVideo used for topic."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video()
-            # sendVideo to topic (not sendVideoNote)
-            assert len(_get_topic_videos(bot)) == 1
-            assert len(_get_topic_video_notes(bot)) == 0
-
-    async def test_removal_user_none_skips_general(self, mocks: MockHolder):
-        """Removal with user.topic_id=None → no general topic notification."""
-        self._setup_removal(mocks)
-        _setup_happy_path(
-            mocks,
-            intake_log=_make_intake_log(delay_minutes=31),
-            late_result=(3, [FIXED_NOW.isoformat()] * 3),
-            user=_make_user(topic_id=None),
-        )
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            # No topic notifications at all (topic_id=None)
-            assert len(_get_topic_video_notes(bot)) == 0
-            assert len(_get_general_sends(bot)) == 0
-
-
 # ── TestHandleVideoCompletion ─────────────────────────────────────────────
 
 
@@ -903,8 +771,8 @@ class TestHandleVideoCompletion:
             bot.assert_last_bot_message_contains(VideoTemplates.pending_review())
             mocks.video_service.complete_course.assert_not_called()
 
-    async def test_no_completion_if_removal(self, mocks: MockHolder):
-        """Last day + removal → removal takes priority."""
+    async def test_completion_even_with_max_strikes(self, mocks: MockHolder):
+        """Last day + 3rd strike → completion wins (removal handled by worker)."""
         dates = [FIXED_NOW.isoformat()] * 3
         _setup_happy_path(
             mocks,
@@ -915,8 +783,8 @@ class TestHandleVideoCompletion:
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp) as bot:
             await bot.send_video_note()
-            bot.assert_last_bot_message_contains("опоздала слишком много раз")
-            mocks.video_service.complete_course.assert_not_called()
+            bot.assert_last_bot_message_contains(VideoTemplates.private_completed(21))
+            mocks.video_service.complete_course.assert_called_once()
 
 
 # ── TestHandleVideoTopicNotifications ─────────────────────────────────────
@@ -1558,123 +1426,6 @@ class TestCompletionTopicErrors:
             await bot.send_video_note()
             # Handler still completes
             bot.assert_last_bot_message_contains(VideoTemplates.private_completed(21))
-
-
-# ── TestRemovalTopicErrors ────────────────────────────────────────────────
-
-
-class TestRemovalTopicErrors:
-    """Tests for _send_late_removal_to_topic error paths (lines 693-756)."""
-
-    def _setup_removal(self, mocks: MockHolder, **kw):
-        """Configure for removal with topic notifications."""
-        dates = [FIXED_NOW.isoformat()] * 3
-        _setup_happy_path(
-            mocks,
-            intake_log=_make_intake_log(delay_minutes=31),
-            late_result=(3, dates),
-            user=kw.get("user", _make_user()),
-            manager=kw.get("manager", _make_manager()),
-        )
-
-    async def test_removal_video_fails_returns(self, mocks: MockHolder):
-        """Video send to topic fails → early return, no text/icon/general."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            original_route = bot._server._route_method
-
-            def patched(method, data):
-                if method == "sendVideoNote" and str(data.get("chat_id")) == _S_GROUP:
-                    return {"ok": False, "error_code": 400, "description": "Bad Request"}
-                return original_route(method, data)
-
-            bot._server._route_method = patched
-            await bot.send_video_note()
-            assert len(_get_topic_sends(bot)) == 0
-            assert len(_get_edit_topic_reqs(bot)) == 0
-
-    async def test_removal_text_fails(self, mocks: MockHolder):
-        """Removal text fails → icon and general still attempted."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            original_route = bot._server._route_method
-
-            def patched(method, data):
-                if (method == "sendMessage"
-                        and str(data.get("chat_id")) == _S_GROUP
-                        and str(data.get("message_thread_id")) == _S_TOPIC):
-                    return {"ok": False, "error_code": 400, "description": "Bad Request"}
-                return original_route(method, data)
-
-            bot._server._route_method = patched
-            await bot.send_video_note()
-            # Icon still attempted
-            assert len(_get_edit_topic_reqs(bot)) >= 1
-
-    async def test_removal_icon_fails(self, mocks: MockHolder):
-        """editForumTopic fails → general topic still sent."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            original_route = bot._server._route_method
-
-            def patched(method, data):
-                if method == "editForumTopic":
-                    return {"ok": False, "error_code": 400, "description": "Bad Request"}
-                return original_route(method, data)
-
-            bot._server._route_method = patched
-            await bot.send_video_note()
-            # General topic still sent
-            assert len(_get_general_sends(bot)) == 1
-
-    async def test_removal_general_no_manager_name(self, mocks: MockHolder):
-        """general_late_removed doesn't mention manager — only girl name + reason."""
-        self._setup_removal(mocks)
-        mocks.manager_repo.get_by_id.return_value = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            generals = _get_general_sends(bot)
-            assert len(generals) == 1
-            text = generals[0].data.get("text", "")
-            assert "снята" in text
-            assert "опоздала" in text
-
-    async def test_removal_no_general_topic_id(self, mocks: MockHolder):
-        """kok_general_topic_id=None → general msg without thread_id."""
-        self._setup_removal(mocks)
-        mocks.settings.kok_general_topic_id = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            await bot.send_video_note()
-            reqs = bot._server.tracker.get_requests_by_method("sendMessage")
-            removal_general = [r for r in reqs
-                               if str(r.data.get("chat_id")) == _S_GROUP
-                               and "снята" in r.data.get("text", "")]
-            if removal_general:
-                assert removal_general[0].data.get("message_thread_id") is None
-
-    async def test_removal_general_send_fails(self, mocks: MockHolder):
-        """General topic send fails → logged, handler continues."""
-        self._setup_removal(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            original_route = bot._server._route_method
-
-            def patched(method, data):
-                if (method == "sendMessage"
-                        and str(data.get("chat_id")) == _S_GROUP
-                        and str(data.get("message_thread_id")) == _S_GENERAL):
-                    return {"ok": False, "error_code": 400, "description": "Bad Request"}
-                return original_route(method, data)
-
-            bot._server._route_method = patched
-            await bot.send_video_note()
-            # Handler still completes
-            bot.assert_last_bot_message_contains("опоздала слишком много раз")
 
 
 # ── TestLateWarningErrors ─────────────────────────────────────────────────

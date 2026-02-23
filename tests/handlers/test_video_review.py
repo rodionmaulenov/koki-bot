@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 from datetime import datetime, time
 from typing import Any
-from unittest.mock import ANY
 
 from callbacks.video import VideoAction, VideoCallback
 from handlers.video.review import (
@@ -20,7 +19,6 @@ from models.manager import Manager
 from models.user import User as KokUser
 from templates import VideoTemplates
 from tests.handlers.conftest import (
-    KOK_GENERAL_TOPIC_ID,
     KOK_GROUP_ID,
     MockHolder,
     create_test_dispatcher,
@@ -41,13 +39,6 @@ PRIVATE_MSG_ID = 50
 CALLBACK_MSG_ID = 1
 
 _S_GROUP = str(KOK_GROUP_ID)
-_S_GENERAL = str(KOK_GENERAL_TOPIC_ID)
-
-LATE_DATES = [
-    "2025-01-13T10:31:00+05:00",
-    "2025-01-14T10:40:00+05:00",
-    "2025-01-15T11:00:00+05:00",
-]
 
 DEADLINE = datetime(2025, 1, 16, 8, 0, 0, tzinfo=TASHKENT_TZ)
 DEADLINE_STR = "16.01 08:00"
@@ -407,7 +398,6 @@ class TestOnConfirmLateStrike:
             # Strike not recorded → show normal confirmed, not late warning
             pe = _private_edits(bot)
             assert VideoTemplates.private_confirmed(6, 21) == pe[0].data.get("text")
-            mocks.video_service.undo_day_and_refuse.assert_not_called()
 
     async def test_first_day_late_overrides_icon(self, mocks: MockHolder):
         """day=1 + is_late → late warning sent, NOT icon change to ACTIVE."""
@@ -427,143 +417,8 @@ class TestOnConfirmLateStrike:
             assert len(_forum_edits(bot)) == 0
 
 
-class TestOnConfirmLateRemoval:
-    """Late removal: late_count >= max_strikes."""
-
-    def _setup(self, mocks: MockHolder, **kw: Any) -> None:
-        _setup_confirm(
-            mocks,
-            log=kw.get("log", _log(delay_minutes=60)),
-            course=kw.get("course", _course(late_count=2)),
-            user=kw.get("user", _user()),
-            manager=kw.get("manager", _manager()),
-            max_strikes=kw.get("max_strikes", 3),
-            late_result=kw.get("late_result", (3, LATE_DATES)),
-        )
-
-    async def test_removal_triggers(self, mocks: MockHolder):
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            mocks.video_service.undo_day_and_refuse.assert_called_once()
-
-    async def test_removal_undo_original_day(self, mocks: MockHolder):
-        """undo_day_and_refuse uses course.current_day BEFORE increment."""
-        self._setup(mocks, course=_course(current_day=5, late_count=2))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            mocks.video_service.undo_day_and_refuse.assert_called_once_with(
-                COURSE_ID, 5, appeal_deadline=ANY,
-            )
-
-    async def test_removal_topic_message(self, mocks: MockHolder):
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            cb = _callback_edits(bot)
-            assert len(cb) >= 1
-            assert "Снята с программы" in cb[0].data.get("text", "")
-
-    async def test_removal_private_with_appeal(self, mocks: MockHolder):
-        self._setup(mocks, course=_course(late_count=2, appeal_count=0))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            pe = _private_edits(bot)
-            assert len(pe) == 1
-            assert "опоздала слишком много" in pe[0].data.get("text", "")
-            assert _has_appeal_button(pe[0].data)
-
-    async def test_removal_no_appeal_at_max(self, mocks: MockHolder):
-        """appeal_count >= MAX_APPEALS → no appeal button."""
-        self._setup(mocks, course=_course(late_count=2, appeal_count=2))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            pe = _private_edits(bot)
-            assert len(pe) == 1
-            assert not _has_appeal_button(pe[0].data)
-
-    async def test_removal_icon_refused(self, mocks: MockHolder):
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            fe = _forum_edits(bot)
-            assert len(fe) == 1
-            assert fe[0].data.get("icon_custom_emoji_id") == str(TOPIC_ICON_REFUSED)
-
-    async def test_removal_general_topic(self, mocks: MockHolder):
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            sends = _group_sends(bot, topic_id=KOK_GENERAL_TOPIC_ID)
-            assert len(sends) == 1
-            text = sends[0].data.get("text", "")
-            assert "снята" in text
-            assert "Test Manager отклонил видео" in text
-            assert "Test Girl" in text
-
-    async def test_removal_no_general_topic_id(self, mocks: MockHolder):
-        """kok_general_topic_id=None → send without message_thread_id."""
-        mocks.settings.kok_general_topic_id = None
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            sends = _group_sends(bot)
-            general = [s for s in sends if "снята" in s.data.get("text", "")]
-            assert len(general) == 1
-            assert "message_thread_id" not in general[0].data
-
-    async def test_removal_manager_not_found(self, mocks: MockHolder):
-        """manager_repo returns None → fallback 'менеджер'."""
-        self._setup(mocks)
-        mocks.manager_repo.get_by_id.return_value = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            pe = _private_edits(bot)
-            assert "менеджер" in pe[0].data.get("text", "")
-
-    async def test_removal_icon_fails_silent(self, mocks: MockHolder):
-        """editForumTopic fails → handler continues to general topic."""
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            _fail(bot, "editForumTopic")
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            sends = _group_sends(bot)
-            assert any("снята" in s.data.get("text", "") for s in sends)
-            assert len(_answers(bot)) >= 1
-
-    async def test_removal_general_send_fails(self, mocks: MockHolder):
-        """sendMessage to general fails → handler still answers callback."""
-        self._setup(mocks)
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            _fail(bot, "sendMessage")
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            assert len(_answers(bot)) >= 1
-
-
 class TestOnConfirmCompletion:
-    """Completion: day >= total_days, not removal."""
+    """Completion: day >= total_days."""
 
     def _setup(self, mocks: MockHolder, **kw: Any) -> None:
         _setup_confirm(
@@ -657,21 +512,6 @@ class TestOnConfirmCompletion:
 
 class TestOnConfirmEdgeCases:
     """Private/topic skip conditions + remaining failure branches."""
-
-    async def test_no_completion_on_removal(self, mocks: MockHolder):
-        """day=total but removal → is_completed=False."""
-        _setup_confirm(
-            mocks,
-            log=_log(day=21, delay_minutes=60),
-            course=_course(total_days=21, late_count=2),
-            late_result=(3, LATE_DATES),
-        )
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            mocks.video_service.complete_course.assert_not_called()
-            mocks.video_service.undo_day_and_refuse.assert_called_once()
 
     async def test_user_none_skips_private_and_topic(self, mocks: MockHolder):
         _setup_confirm(mocks, user=None)
