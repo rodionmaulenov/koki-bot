@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
+from unittest.mock import ANY
 
 from aiogram.types import Chat, Message, Update, VideoNote
 
@@ -724,7 +725,9 @@ class TestHandleVideoRemoval:
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp) as bot:
             await bot.send_video_note()
-            mocks.video_service.undo_day_and_refuse.assert_called_once_with(10, 5)
+            mocks.video_service.undo_day_and_refuse.assert_called_once_with(
+                10, 5, appeal_deadline=ANY,
+            )
 
     async def test_removal_private_message(self, mocks: MockHolder):
         """Removal → 'опоздала слишком много раз'."""

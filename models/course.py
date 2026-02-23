@@ -23,6 +23,7 @@ class Course(BaseModel):
     appeal_video: str | None = None
     appeal_text: str | None = None
     removal_reason: str | None = None
+    appeal_deadline: datetime | None = None
     late_dates: list[str] = []
     created_at: datetime
     updated_at: datetime | None = None

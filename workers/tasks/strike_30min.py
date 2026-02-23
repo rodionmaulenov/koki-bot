@@ -15,7 +15,7 @@ from repositories.user_repository import UserRepository
 from services.video_service import VideoService
 from templates import AppealTemplates, VideoTemplates, WorkerTemplates, fallback_manager_name
 from utils.telegram_retry import tg_retry
-from utils.time import calculate_time_range_after, get_tashkent_now
+from utils.time import calculate_appeal_deadline, calculate_time_range_after, get_tashkent_now
 from workers.dedup import mark_sent, was_sent
 
 logger = logging.getLogger(__name__)
@@ -76,15 +76,23 @@ async def run(
         max_strikes = video_service.get_max_strikes(course)
         is_removal = late_count >= max_strikes
 
+        deadline = calculate_appeal_deadline(now, course.intake_time)
+
         user = await user_repository.get_by_id(course.user_id)
         if not user or not user.telegram_id:
             if is_removal:
-                await course_repository.refuse_if_active(course.id, removal_reason=RemovalReason.MAX_STRIKES)
+                await course_repository.refuse_if_active(
+                    course.id, removal_reason=RemovalReason.MAX_STRIKES,
+                    appeal_deadline=deadline,
+                )
             continue
 
         if is_removal:
             # Final strike → refuse course
-            refused = await course_repository.refuse_if_active(course.id, removal_reason=RemovalReason.MAX_STRIKES)
+            refused = await course_repository.refuse_if_active(
+                course.id, removal_reason=RemovalReason.MAX_STRIKES,
+                appeal_deadline=deadline,
+            )
             if not refused:
                 continue
 
@@ -93,12 +101,14 @@ async def run(
             dates_str = VideoTemplates.format_late_dates(late_dates)
 
             # Notify girl (with appeal button if eligible)
-            markup = appeal_button(course.id) if course.appeal_count < AppealTemplates.MAX_APPEALS else None
+            has_appeal = course.appeal_count < AppealTemplates.MAX_APPEALS
+            markup = appeal_button(course.id) if has_appeal else None
+            deadline_str = deadline.strftime("%d.%m %H:%M") if has_appeal else None
             try:
                 await tg_retry(
                     bot.send_message,
                     chat_id=user.telegram_id,
-                    text=VideoTemplates.private_late_removed(dates_str, manager_name),
+                    text=VideoTemplates.private_late_removed(dates_str, manager_name, deadline_str),
                     reply_markup=markup,
                 )
             except TelegramForbiddenError:

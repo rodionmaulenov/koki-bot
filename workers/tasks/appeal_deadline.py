@@ -1,47 +1,26 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from redis.asyncio import Redis
 
 from config import Settings
-from models.course import Course
 from repositories.course_repository import CourseRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from templates import WorkerTemplates, fallback_manager_name
 from utils.telegram_retry import tg_retry
-from utils.time import TASHKENT_TZ, get_tashkent_now
+from utils.time import calculate_appeal_deadline, get_tashkent_now
 from workers.dedup import mark_sent, was_sent
 
 logger = logging.getLogger(__name__)
 
 REMINDER_TYPE = "appeal_expired"
-DEADLINE_HOURS_BEFORE = 2
 DEADLINE_KEY_TTL = 86400 * 3  # 3 days
 
 # Topic icon for refused course
 TOPIC_ICON_REFUSED = 5379748062124056162  # ❗️
-
-
-def _calculate_appeal_deadline(now: datetime, course: Course) -> datetime:
-    """Calculate appeal deadline: next occurrence of intake_time - 2h."""
-    if not course.intake_time:
-        return now + timedelta(hours=24)
-
-    today_intake = datetime.combine(
-        now.date(), course.intake_time, tzinfo=TASHKENT_TZ,
-    )
-    today_deadline = today_intake - timedelta(hours=DEADLINE_HOURS_BEFORE)
-
-    if now < today_deadline:
-        return today_deadline
-
-    tomorrow_intake = datetime.combine(
-        now.date() + timedelta(days=1), course.intake_time, tzinfo=TASHKENT_TZ,
-    )
-    return tomorrow_intake - timedelta(hours=DEADLINE_HOURS_BEFORE)
 
 
 async def run(
@@ -66,7 +45,7 @@ async def run(
         stored = await redis.get(deadline_key)
 
         if not stored:
-            deadline = _calculate_appeal_deadline(now, course)
+            deadline = calculate_appeal_deadline(now, course.intake_time)
             await redis.set(deadline_key, deadline.isoformat(), ex=DEADLINE_KEY_TTL)
             logger.info(
                 "Appeal deadline set for course_id=%d: %s",

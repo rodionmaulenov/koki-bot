@@ -30,6 +30,31 @@ def calculate_time_range_before(
     return range_start.time(), range_end.time()
 
 
+APPEAL_DEADLINE_HOURS_BEFORE = 2
+
+
+def calculate_appeal_deadline(now: datetime, intake_time: time | None) -> datetime:
+    """Calculate appeal deadline: next occurrence of intake_time - 2h.
+
+    Used to set the time limit for girl to press the appeal button.
+    """
+    if not intake_time:
+        return now + timedelta(hours=24)
+
+    today_intake = datetime.combine(
+        now.date(), intake_time, tzinfo=TASHKENT_TZ,
+    )
+    today_deadline = today_intake - timedelta(hours=APPEAL_DEADLINE_HOURS_BEFORE)
+
+    if now < today_deadline:
+        return today_deadline
+
+    tomorrow_intake = datetime.combine(
+        now.date() + timedelta(days=1), intake_time, tzinfo=TASHKENT_TZ,
+    )
+    return tomorrow_intake - timedelta(hours=APPEAL_DEADLINE_HOURS_BEFORE)
+
+
 def calculate_time_range_after(
     minutes_after: int, interval_minutes: int = 5,
 ) -> tuple[time, time]:

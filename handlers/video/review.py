@@ -7,7 +7,7 @@ from dishka.integrations.aiogram import FromDishka
 
 from callbacks.video import VideoAction, VideoCallback
 from config import Settings
-from utils.time import get_tashkent_now
+from utils.time import calculate_appeal_deadline, get_tashkent_now
 from keyboards.appeal import appeal_button
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
@@ -78,10 +78,14 @@ async def on_confirm(
             logger.exception("Failed to record late for course_id=%d", course.id)
             is_late = False  # Strike not recorded → don't show late warning
 
+    appeal_dl = None
     if is_removal:
         # course.current_day is the OLD value (before confirm_intake updated DB)
         # — this is intentional: we're rolling back to the pre-confirm state
-        await video_service.undo_day_and_refuse(course.id, course.current_day)
+        appeal_dl = calculate_appeal_deadline(get_tashkent_now(), course.intake_time)
+        await video_service.undo_day_and_refuse(
+            course.id, course.current_day, appeal_deadline=appeal_dl,
+        )
 
     # 1.6 Completion check (confirmed + last day + not removed)
     is_completed = not is_removal and intake_log.day >= course.total_days
@@ -94,7 +98,8 @@ async def on_confirm(
 
     # 2. Edit topic message: remove buttons, show confirmed/removal/completion text
     # Appeal button only in girl's private chat, NOT in topic (manager could press it)
-    appeal_markup = appeal_button(course.id) if course.appeal_count < AppealTemplates.MAX_APPEALS else None
+    has_appeal = is_removal and course.appeal_count < AppealTemplates.MAX_APPEALS
+    appeal_markup = appeal_button(course.id) if has_appeal else None
     if is_removal:
         dates_str = VideoTemplates.format_late_dates(late_dates)
         await _edit_callback_message(
@@ -118,11 +123,12 @@ async def on_confirm(
             manager = await manager_repository.get_by_id(user.manager_id)
             manager_name = manager.name if manager else fallback_manager_name()
             dates_str = VideoTemplates.format_late_dates(late_dates)
+            deadline_str = appeal_dl.strftime("%d.%m %H:%M") if has_appeal and appeal_dl else None
             await _edit_private_message(
                 callback.bot,
                 user.telegram_id,
                 intake_log.private_message_id,
-                VideoTemplates.private_late_removed(dates_str, manager_name),
+                VideoTemplates.private_late_removed(dates_str, manager_name, deadline_str),
                 reply_markup=appeal_markup,
             )
         elif is_completed:

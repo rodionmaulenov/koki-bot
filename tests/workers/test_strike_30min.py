@@ -9,7 +9,7 @@ Key logic tested:
 - Boundary: late_count == max_strikes → is_removal=True (>= not >)
 """
 from datetime import date, time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramForbiddenError
 
@@ -352,13 +352,13 @@ class TestRun:
             await run(bot, redis, make_settings(), course_repo,
                       user_repo, manager_repo, intake_log_repo, vs)
 
-        course_repo.refuse_if_active.assert_called_once_with(1, removal_reason="max_strikes")
+        course_repo.refuse_if_active.assert_called_once_with(
+            1, removal_reason="max_strikes", appeal_deadline=ANY,
+        )
         dates_str = VideoTemplates.format_late_dates(_LATE_DATES_3)
         girl_call = bot.send_message.call_args_list[0]
         assert girl_call.kwargs["chat_id"] == 555000
-        assert girl_call.kwargs["text"] == VideoTemplates.private_late_removed(
-            dates_str, "Aliya",
-        )
+        assert VideoTemplates.private_late_removed(dates_str, "Aliya") in girl_call.kwargs["text"]
         mock_mark.assert_called_once_with(redis, 1, REMINDER_TYPE)
         assert REMINDER_TYPE == "strike"
 
@@ -541,7 +541,7 @@ class TestRun:
 
         dates_str = VideoTemplates.format_late_dates(_LATE_DATES_3)
         girl_text = bot.send_message.call_args_list[0].kwargs["text"]
-        assert girl_text == VideoTemplates.private_late_removed(dates_str, "менеджер")
+        assert VideoTemplates.private_late_removed(dates_str, "менеджер") in girl_text
 
     async def test_removal_refuse_race_condition_skips(self):
         """refuse_if_active=False → skip all notifications."""
@@ -614,7 +614,9 @@ class TestRun:
             await run(AsyncMock(), AsyncMock(), make_settings(), course_repo,
                       user_repo, AsyncMock(), intake_log_repo, vs)
 
-        course_repo.refuse_if_active.assert_called_once_with(42, removal_reason="max_strikes")
+        course_repo.refuse_if_active.assert_called_once_with(
+            42, removal_reason="max_strikes", appeal_deadline=ANY,
+        )
 
     async def test_user_no_telegram_id_refuses_on_removal(self):
         """telegram_id=None + is_removal → refuse_if_active called."""
@@ -632,7 +634,9 @@ class TestRun:
             await run(AsyncMock(), AsyncMock(), make_settings(), course_repo,
                       user_repo, AsyncMock(), intake_log_repo, vs)
 
-        course_repo.refuse_if_active.assert_called_once_with(1, removal_reason="max_strikes")
+        course_repo.refuse_if_active.assert_called_once_with(
+            1, removal_reason="max_strikes", appeal_deadline=ANY,
+        )
 
     async def test_user_not_found_no_refuse_on_warning(self):
         """user=None + is_warning → refuse_if_active NOT called."""
@@ -696,4 +700,4 @@ class TestRun:
         course_repo.refuse_if_active.assert_called_once()
         dates_str = VideoTemplates.format_late_dates(_LATE_DATES_3)
         girl_text = bot.send_message.call_args_list[0].kwargs["text"]
-        assert girl_text == VideoTemplates.private_late_removed(dates_str, "Aliya")
+        assert VideoTemplates.private_late_removed(dates_str, "Aliya") in girl_text

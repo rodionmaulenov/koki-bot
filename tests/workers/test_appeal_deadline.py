@@ -1,7 +1,7 @@
 """Tests for workers/tasks/appeal_deadline.py — appeal deadline auto-refuse.
 
 Key logic tested:
-- _calculate_appeal_deadline() pure function: today/tomorrow, midnight crossing, fallback
+- calculate_appeal_deadline() pure function: today/tomorrow, midnight crossing, fallback
 - Two-pass Redis: 1st run stores deadline + continue, 2nd run checks + processes
 - refuse_if_appeal (NOT refuse_if_active), new_appeal_count = appeal_count + 1
 - Girl notification WITHOUT reply_markup (no appeal button)
@@ -16,12 +16,11 @@ from models.course import Course
 from models.enums import CourseStatus
 from templates import WorkerTemplates
 from utils.time import TASHKENT_TZ
+from utils.time import APPEAL_DEADLINE_HOURS_BEFORE, calculate_appeal_deadline
 from workers.tasks.appeal_deadline import (
-    DEADLINE_HOURS_BEFORE,
     DEADLINE_KEY_TTL,
     REMINDER_TYPE,
     TOPIC_ICON_REFUSED,
-    _calculate_appeal_deadline,
     run,
 )
 
@@ -66,7 +65,7 @@ def _patches(was_sent_rv=False):
 
 
 # =============================================================================
-# _calculate_appeal_deadline pure function
+# calculate_appeal_deadline pure function
 # =============================================================================
 
 
@@ -74,40 +73,35 @@ class TestCalculateAppealDeadline:
 
     def test_no_intake_time_fallback_24h(self):
         """intake_time=None → now + 24 hours."""
-        course = _course(intake_time=None)
-        result = _calculate_appeal_deadline(JUN_15, course)
+        result = calculate_appeal_deadline(JUN_15, None)
         assert result == JUN_15 + timedelta(hours=24)
 
     def test_today_deadline_before_now(self):
         """now=10:00, intake=14:00 → today_deadline=12:00 (today)."""
         now = datetime(2025, 6, 15, 10, 0, tzinfo=TASHKENT_TZ)
-        course = _course(intake_time=time(14, 0))
-        result = _calculate_appeal_deadline(now, course)
+        result = calculate_appeal_deadline(now, time(14, 0))
         expected = datetime(2025, 6, 15, 12, 0, tzinfo=TASHKENT_TZ)
         assert result == expected
-        assert DEADLINE_HOURS_BEFORE == 2
+        assert APPEAL_DEADLINE_HOURS_BEFORE == 2
 
     def test_today_deadline_passed_returns_tomorrow(self):
         """now=14:00, intake=14:00 → today_deadline=12:00 (passed) → tomorrow 12:00."""
-        course = _course(intake_time=time(14, 0))
-        result = _calculate_appeal_deadline(JUN_15, course)
+        result = calculate_appeal_deadline(JUN_15, time(14, 0))
         expected = datetime(2025, 6, 16, 12, 0, tzinfo=TASHKENT_TZ)
         assert result == expected
 
     def test_boundary_now_equals_today_deadline(self):
         """now == today_deadline → NOT < → returns tomorrow."""
         now = datetime(2025, 6, 15, 12, 0, tzinfo=TASHKENT_TZ)
-        course = _course(intake_time=time(14, 0))
         # today_deadline = 14:00 - 2h = 12:00 = now
-        result = _calculate_appeal_deadline(now, course)
+        result = calculate_appeal_deadline(now, time(14, 0))
         expected = datetime(2025, 6, 16, 12, 0, tzinfo=TASHKENT_TZ)
         assert result == expected
 
     def test_early_intake_crosses_midnight(self):
         """intake=01:00 → today_deadline = yesterday 23:00 → always tomorrow."""
         now = datetime(2025, 6, 15, 14, 0, tzinfo=TASHKENT_TZ)
-        course = _course(intake_time=time(1, 0))
-        result = _calculate_appeal_deadline(now, course)
+        result = calculate_appeal_deadline(now, time(1, 0))
         # tomorrow 01:00 - 2h = today 23:00
         expected = datetime(2025, 6, 15, 23, 0, tzinfo=TASHKENT_TZ)
         assert result == expected

@@ -9,7 +9,7 @@ _SELECT_COLUMNS = (
     "id, user_id, status, invite_code, invite_used, "
     "cycle_day, intake_time, start_date, current_day, total_days, "
     "late_count, late_dates, appeal_count, appeal_video, appeal_text, "
-    "extended, registration_message_id, removal_reason, "
+    "extended, registration_message_id, removal_reason, appeal_deadline, "
     "created_at, updated_at"
 )
 
@@ -165,10 +165,13 @@ class CourseRepository:
 
     async def set_refused(
         self, course_id: int, removal_reason: str | None = None,
+        appeal_deadline: datetime | None = None,
     ) -> None:
         update_data: dict = {"status": "refused"}
         if removal_reason:
             update_data["removal_reason"] = removal_reason
+        if appeal_deadline:
+            update_data["appeal_deadline"] = appeal_deadline.isoformat()
         await (
             self._supabase.schema("kok")
             .table("courses")
@@ -205,7 +208,7 @@ class CourseRepository:
         response = await (
             self._supabase.schema("kok")
             .table("courses")
-            .update({"status": "appeal"})
+            .update({"status": "appeal", "appeal_deadline": None})
             .eq("id", course_id)
             .eq("status", "refused")
             .execute()
@@ -236,6 +239,7 @@ class CourseRepository:
                 "status": "active",
                 "appeal_count": new_appeal_count,
                 "removal_reason": None,
+                "appeal_deadline": None,
             })
             .eq("id", course_id)
             .eq("status", "appeal")
@@ -335,11 +339,14 @@ class CourseRepository:
 
     async def refuse_if_active(
         self, course_id: int, removal_reason: str | None = None,
+        appeal_deadline: datetime | None = None,
     ) -> bool:
         """Refuse course only if currently active. Returns False if not active."""
         update_data: dict = {"status": "refused"}
         if removal_reason:
             update_data["removal_reason"] = removal_reason
+        if appeal_deadline:
+            update_data["appeal_deadline"] = appeal_deadline.isoformat()
         response = await (
             self._supabase.schema("kok")
             .table("courses")
@@ -370,6 +377,20 @@ class CourseRepository:
             .execute()
         )
         return bool(response.data)
+
+    async def get_refused_with_expired_appeal(
+        self, now: datetime,
+    ) -> list[Course]:
+        """Get refused courses where appeal_deadline has passed."""
+        response = await (
+            self._supabase.schema("kok")
+            .table("courses")
+            .select(_SELECT_COLUMNS)
+            .eq("status", "refused")
+            .lt("appeal_deadline", now.isoformat())
+            .execute()
+        )
+        return [Course(**row) for row in response.data]
 
     async def extend_course(self, course_id: int, new_total: int) -> bool:
         """Extend course: total_days → new_total, extended = True.

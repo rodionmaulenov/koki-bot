@@ -14,7 +14,7 @@ from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from templates import AppealTemplates, WorkerTemplates, fallback_manager_name
 from utils.telegram_retry import tg_retry
-from utils.time import calculate_time_range_after, get_tashkent_now
+from utils.time import calculate_appeal_deadline, calculate_time_range_after, get_tashkent_now
 from workers.dedup import mark_sent, was_sent
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,11 @@ async def run(
             continue
 
         # Refuse course (atomic: only if still active)
-        refused = await course_repository.refuse_if_active(course.id, removal_reason=RemovalReason.NO_VIDEO)
+        deadline = calculate_appeal_deadline(now, course.intake_time)
+        refused = await course_repository.refuse_if_active(
+            course.id, removal_reason=RemovalReason.NO_VIDEO,
+            appeal_deadline=deadline,
+        )
         if not refused:
             await mark_sent(redis, course.id, REMINDER_TYPE)
             continue
@@ -71,12 +75,14 @@ async def run(
 
         # Notify girl (with appeal button if eligible)
         if user.telegram_id:
-            markup = appeal_button(course.id) if course.appeal_count < AppealTemplates.MAX_APPEALS else None
+            has_appeal = course.appeal_count < AppealTemplates.MAX_APPEALS
+            markup = appeal_button(course.id) if has_appeal else None
+            deadline_str = deadline.strftime("%d.%m %H:%M") if has_appeal else None
             try:
                 await tg_retry(
                     bot.send_message,
                     chat_id=user.telegram_id,
-                    text=WorkerTemplates.removal_no_video(manager_name),
+                    text=WorkerTemplates.removal_no_video(manager_name, deadline_str),
                     reply_markup=markup,
                 )
             except TelegramForbiddenError:

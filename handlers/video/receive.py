@@ -28,7 +28,7 @@ from services.video_service import (
 )
 from templates import AppealTemplates, VideoTemplates, fallback_manager_name, format_remaining
 from utils.telegram_retry import tg_retry
-from utils.time import get_tashkent_now
+from utils.time import calculate_appeal_deadline, get_tashkent_now
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +316,10 @@ async def _handle_video(
     if is_removal:
         # course.current_day is the OLD value (before record_intake updated DB)
         # — this is intentional: we're rolling back to the pre-record state
-        await video_service.undo_day_and_refuse(course.id, course.current_day)
+        appeal_dl = calculate_appeal_deadline(get_tashkent_now(), course.intake_time)
+        await video_service.undo_day_and_refuse(
+            course.id, course.current_day, appeal_deadline=appeal_dl,
+        )
 
     # 7.6 Completion check (approved + last day + not removed)
     is_completed = approved and not is_removal and next_day >= course.total_days
@@ -332,10 +335,12 @@ async def _handle_video(
         manager = await manager_repository.get_by_id(user.manager_id) if user else None
         manager_name = manager.name if manager else fallback_manager_name()
         dates_str = VideoTemplates.format_late_dates(late_dates)
-        markup = appeal_button(course.id) if course.appeal_count < AppealTemplates.MAX_APPEALS else None
+        has_appeal = course.appeal_count < AppealTemplates.MAX_APPEALS
+        markup = appeal_button(course.id) if has_appeal else None
+        deadline_str = appeal_dl.strftime("%d.%m %H:%M") if has_appeal else None
         await _edit_safe(
             processing_msg,
-            VideoTemplates.private_late_removed(dates_str, manager_name),
+            VideoTemplates.private_late_removed(dates_str, manager_name, deadline_str),
             reply_markup=markup,
         )
     elif is_completed:

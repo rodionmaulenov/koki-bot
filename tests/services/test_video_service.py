@@ -7,7 +7,7 @@ Key logic tested:
 - Strike calculation with appeal bonus
 """
 from datetime import datetime, time
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 from models.course import Course
 from models.enums import CourseStatus, RemovalReason
@@ -570,7 +570,9 @@ class TestDelegation:
         await service.undo_day_and_refuse(course_id=3, original_day=5)
 
         mock_course_repo.update_current_day.assert_called_once_with(3, 5)
-        mock_course_repo.set_refused.assert_called_once_with(3, removal_reason="max_strikes")
+        mock_course_repo.set_refused.assert_called_once_with(
+            3, removal_reason="max_strikes", appeal_deadline=ANY,
+        )
 
     async def test_get_pending_reshoot(
         self,

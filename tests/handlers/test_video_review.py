@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, time
 from typing import Any
+from unittest.mock import ANY
 
 from callbacks.video import VideoAction, VideoCallback
 from handlers.video.review import (
@@ -455,7 +456,9 @@ class TestOnConfirmLateRemoval:
         async with MockTelegramBot(dp) as bot:
             _seed(bot)
             await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            mocks.video_service.undo_day_and_refuse.assert_called_once_with(COURSE_ID, 5)
+            mocks.video_service.undo_day_and_refuse.assert_called_once_with(
+                COURSE_ID, 5, appeal_deadline=ANY,
+            )
 
     async def test_removal_topic_message(self, mocks: MockHolder):
         self._setup(mocks)

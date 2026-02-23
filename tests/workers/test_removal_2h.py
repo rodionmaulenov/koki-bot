@@ -14,7 +14,7 @@ Key logic tested:
 - Error handling: TelegramForbiddenError, generic exceptions
 """
 from datetime import date, time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from aiogram.exceptions import TelegramForbiddenError
 
@@ -210,7 +210,7 @@ class TestRun:
 
         # refuse_if_active called with removal_reason
         course_repo.refuse_if_active.assert_called_once_with(
-            1, removal_reason="no_video",
+            1, removal_reason="no_video", appeal_deadline=ANY,
         )
 
         # Girl gets message
@@ -218,7 +218,7 @@ class TestRun:
         girl_call = calls[0]
         assert girl_call.kwargs["chat_id"] == 555000
         assert "Aliya" in girl_call.kwargs["text"]
-        assert girl_call.kwargs["text"] == WorkerTemplates.removal_no_video("Aliya")
+        assert WorkerTemplates.removal_no_video("Aliya") in girl_call.kwargs["text"]
 
         # mark_sent called
         mock_mark.assert_called_once_with(redis, 1, REMINDER_TYPE)
@@ -347,7 +347,7 @@ class TestRun:
 
         girl_text = bot.send_message.call_args_list[0].kwargs["text"]
         assert "менеджер" in girl_text
-        assert girl_text == WorkerTemplates.removal_no_video("менеджер")
+        assert WorkerTemplates.removal_no_video("менеджер") in girl_text
 
     # ── Appeal button ───────────────────────────────────────────────────
 

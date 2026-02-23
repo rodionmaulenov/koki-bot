@@ -11,7 +11,6 @@ from dishka.integrations.aiogram import FromDishka
 from callbacks.appeal import AppealAction, AppealCallback
 from config import Settings
 from keyboards.appeal import appeal_review_keyboard
-
 from repositories.course_repository import CourseRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
@@ -44,6 +43,21 @@ async def on_start_appeal(
     course_repository: FromDishka[CourseRepository],
 ) -> None:
     """Girl pressed 'Апелляция' button."""
+    # Check deadline before starting appeal
+    course = await course_repository.get_by_id(callback_data.course_id)
+    if course is None:
+        await callback.answer()
+        return
+
+    if course.appeal_deadline and get_tashkent_now() > course.appeal_deadline:
+        await callback.answer(AppealTemplates.appeal_deadline_expired(), show_alert=True)
+        if callback.message:
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except TelegramBadRequest:
+                pass
+        return
+
     # Atomic: refused → appeal (protects against double-click)
     started = await course_repository.start_appeal(callback_data.course_id)
     if not started:

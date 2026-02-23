@@ -756,15 +756,24 @@ class VideoTemplates:
         )
 
     @staticmethod
-    def private_late_removed(late_dates_formatted: str, manager_name: str) -> str:
+    def private_late_removed(
+        late_dates_formatted: str, manager_name: str,
+        deadline_str: str | None = None,
+    ) -> str:
         safe = escape(manager_name)
-        return _t(
+        text = _t(
             f"Ты опоздала слишком много раз:\n{late_dates_formatted}\n\n"
             f"Программа закончена. Обратись к менеджеру: {safe}",
 
             f"Sen juda ko'p marta kechikding:\n{late_dates_formatted}\n\n"
             f"Dastur tugadi. Menejeringga murojaat qil: {safe}",
         )
+        if deadline_str:
+            text += "\n\n" + _t(
+                f"⏰ У тебя есть время до {deadline_str} чтобы подать апелляцию.",
+                f"⏰ Apellyatsiya uchun {deadline_str} gacha vaqting bor.",
+            )
+        return text
 
     # ── Topic/general (менеджер — всегда русский) ──
 
@@ -904,6 +913,13 @@ class AppealTemplates:
             "Xatolik: qaytadan urinib ko'r",
         )
 
+    @staticmethod
+    def appeal_deadline_expired() -> str:
+        return _t(
+            "Время на апелляцию истекло",
+            "Apellyatsiya muddati tugadi",
+        )
+
     # ── Topic messages (менеджер — всегда русский) ──
 
     @staticmethod
@@ -988,14 +1004,22 @@ class WorkerTemplates:
     # ── Auto-removal +2h (girl's private chat) ──
 
     @staticmethod
-    def removal_no_video(manager_name: str) -> str:
+    def removal_no_video(
+        manager_name: str, deadline_str: str | None = None,
+    ) -> str:
         safe = escape(manager_name)
-        return _t(
+        text = _t(
             "Ты не отправила видео в течение 2 часов. "
             f"Программа закончена. Обратись к менеджеру: {safe}",
             "Sen 2 soat ichida video yubormading. "
             f"Dastur tugadi. Menejeringga murojaat qil: {safe}",
         )
+        if deadline_str:
+            text += "\n\n" + _t(
+                f"⏰ У тебя есть время до {deadline_str} чтобы подать апелляцию.",
+                f"⏰ Apellyatsiya uchun {deadline_str} gacha vaqting bor.",
+            )
+        return text
 
     # ── Topic/general (менеджер — всегда русский) ──
 
@@ -1080,6 +1104,15 @@ class WorkerTemplates:
     ) -> str:
         name = _topic_link(girl_name, topic_id, group_id)
         return f"❌ Апелляция {name} отклонена — {escape(manager_name)} не ответил вовремя"
+
+    # ── Appeal button deadline expired (girl didn't press button in time) ──
+
+    @staticmethod
+    def appeal_button_expired() -> str:
+        return _t(
+            "⏰ Время на апелляцию истекло.",
+            "⏰ Apellyatsiya muddati tugadi.",
+        )
 
 
 class CardTemplates:
