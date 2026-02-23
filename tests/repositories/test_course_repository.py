@@ -240,6 +240,20 @@ class TestSetRefused:
         updated = await course_repository.get_by_id(course.id)
         assert updated.status == CourseStatus.REFUSED
 
+    async def test_sets_appeal_deadline(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """set_refused with appeal_deadline writes it to DB."""
+        _, user_id = make_user
+        course = await create_test_course(supabase, user_id=user_id, status="active")
+        deadline = datetime(2026, 3, 1, 12, 0, tzinfo=TASHKENT_TZ)
+
+        await course_repository.set_refused(course.id, appeal_deadline=deadline)
+
+        updated = await course_repository.get_by_id(course.id)
+        assert updated.status == CourseStatus.REFUSED
+        assert updated.appeal_deadline == deadline
+
 
 class TestSetExpired:
     async def test_sets_expired(
@@ -314,6 +328,20 @@ class TestRefuseIfActive:
 
         result = await course_repository.refuse_if_active(course.id)
         assert result is False
+
+    async def test_writes_appeal_deadline(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """refuse_if_active with appeal_deadline writes it to DB."""
+        _, user_id = make_user
+        course = await create_test_course(supabase, user_id=user_id, status="active")
+        deadline = datetime(2026, 3, 1, 14, 0, tzinfo=TASHKENT_TZ)
+
+        result = await course_repository.refuse_if_active(course.id, appeal_deadline=deadline)
+
+        assert result is True
+        updated = await course_repository.get_by_id(course.id)
+        assert updated.appeal_deadline == deadline
 
 
 class TestCompleteCourseActive:
@@ -437,6 +465,24 @@ class TestStartAppeal:
 
         assert first is True
         assert second is False
+
+    async def test_clears_appeal_deadline(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """start_appeal clears appeal_deadline."""
+        _, user_id = make_user
+        deadline = datetime(2026, 3, 1, 12, 0, tzinfo=TASHKENT_TZ)
+        course = await create_test_course(
+            supabase, user_id=user_id, status="refused",
+            appeal_deadline=deadline.isoformat(),
+        )
+
+        result = await course_repository.start_appeal(course.id)
+
+        assert result is True
+        updated = await course_repository.get_by_id(course.id)
+        assert updated.status == CourseStatus.APPEAL
+        assert updated.appeal_deadline is None
 
 
 class TestSaveAppealData:
@@ -852,3 +898,72 @@ class TestGetReissuableByUserIds:
         assert len(courses) >= 2
         assert courses[0].id == c2.id  # новый первым
         assert courses[1].id == c1.id
+
+
+# =============================================================================
+# APPEAL DEADLINE
+# =============================================================================
+
+
+class TestGetRefusedWithExpiredAppeal:
+    async def test_finds_refused_with_expired_deadline(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """refused + appeal_deadline in the past → found."""
+        _, user_id = make_user
+        past = datetime(2026, 1, 1, 10, 0, tzinfo=TASHKENT_TZ)
+        course = await create_test_course(
+            supabase, user_id=user_id, status="refused",
+            appeal_deadline=past.isoformat(),
+        )
+
+        now = datetime(2026, 1, 2, 10, 0, tzinfo=TASHKENT_TZ)
+        courses = await course_repository.get_refused_with_expired_appeal(now)
+
+        assert any(c.id == course.id for c in courses)
+
+    async def test_future_deadline_not_found(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """refused + appeal_deadline in the future → not found."""
+        _, user_id = make_user
+        future = datetime(2026, 3, 1, 10, 0, tzinfo=TASHKENT_TZ)
+        course = await create_test_course(
+            supabase, user_id=user_id, status="refused",
+            appeal_deadline=future.isoformat(),
+        )
+
+        now = datetime(2026, 2, 1, 10, 0, tzinfo=TASHKENT_TZ)
+        courses = await course_repository.get_refused_with_expired_appeal(now)
+
+        assert not any(c.id == course.id for c in courses)
+
+    async def test_null_deadline_not_found(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """refused + appeal_deadline=NULL → not found (backward compat)."""
+        _, user_id = make_user
+        course = await create_test_course(
+            supabase, user_id=user_id, status="refused",
+        )
+
+        now = datetime(2026, 6, 1, 10, 0, tzinfo=TASHKENT_TZ)
+        courses = await course_repository.get_refused_with_expired_appeal(now)
+
+        assert not any(c.id == course.id for c in courses)
+
+    async def test_active_status_not_found(
+        self, supabase: AsyncClient, make_user, course_repository: CourseRepository,
+    ):
+        """active + expired deadline → not found (status filter)."""
+        _, user_id = make_user
+        past = datetime(2026, 1, 1, 10, 0, tzinfo=TASHKENT_TZ)
+        course = await create_test_course(
+            supabase, user_id=user_id, status="active",
+            appeal_deadline=past.isoformat(),
+        )
+
+        now = datetime(2026, 1, 2, 10, 0, tzinfo=TASHKENT_TZ)
+        courses = await course_repository.get_refused_with_expired_appeal(now)
+
+        assert not any(c.id == course.id for c in courses)

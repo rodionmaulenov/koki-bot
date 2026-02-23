@@ -266,7 +266,7 @@ class TestStrikeAppealScenario:
             girl_msg = girl.get_last_bot_message()
             assert girl_msg is not None
             expected_removal = VideoTemplates.private_late_removed(dates_str, "Test Manager")
-            assert girl_msg.text == expected_removal
+            assert expected_removal in girl_msg.text
             assert girl_msg.has_inline_keyboard(), "Girl should see appeal button"
             appeal_cb = girl_msg.get_button_callback_data("Апелляция")
             assert appeal_cb is not None, "Appeal button not found"
@@ -286,9 +286,10 @@ class TestStrikeAppealScenario:
             girl.clear_requests_only()
 
             # ══════════════════════════════════════════════════════════
-            # STEP 5: Girl starts appeal
+            # STEP 5: Girl starts appeal (within appeal_deadline)
             # ══════════════════════════════════════════════════════════
-            await girl.click_button(appeal_cb, removal_msg_id)
+            with freeze_time(_late(3) + timedelta(hours=1)):
+                await girl.click_button(appeal_cb, removal_msg_id)
 
             # -- DB: status changed --
             c = await course_repo.get_by_id(course.id)
@@ -446,7 +447,7 @@ class TestStrikeAppealScenario:
             expected_removal_2 = VideoTemplates.private_late_removed(
                 dates_str_2, "Test Manager",
             )
-            assert girl_msg.text == expected_removal_2
+            assert expected_removal_2 in girl_msg.text
             assert girl_msg.has_inline_keyboard(), \
                 "Girl should still see appeal button (appeal_count=1 < MAX_APPEALS=2)"
 

@@ -396,6 +396,54 @@ class TestOnStartAppeal:
             assert await _get_fsm_state(dp) == AppealStates.video.state
             assert len(_private_sends(bot)) == 1
 
+    async def test_course_not_found_skips(self, mocks: MockHolder) -> None:
+        """get_by_id returns None → silent answer, no FSM."""
+        _setup_start(mocks, course=None)
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
+            _seed(bot)
+            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
+
+            mocks.course_repo.start_appeal.assert_not_called()
+            assert await _get_fsm_state(dp) is None
+            assert len(_private_sends(bot)) == 0
+            assert len(_answers(bot)) >= 1
+            assert len(_alert_answers(bot)) == 0
+
+    async def test_deadline_expired_shows_alert(self, mocks: MockHolder) -> None:
+        """appeal_deadline in the past → alert popup, button removed, no FSM."""
+        expired = datetime(2024, 1, 1, tzinfo=TASHKENT_TZ)
+        _setup_start(mocks, course=_course(appeal_deadline=expired))
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
+            _seed(bot)
+            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
+
+            # Alert shown
+            alerts = _alert_answers(bot)
+            assert len(alerts) == 1
+            assert AppealTemplates.appeal_deadline_expired() in alerts[0].data.get("text", "")
+
+            # Button removed
+            assert len(_edit_markups(bot)) >= 1
+
+            # No FSM, no start_appeal
+            mocks.course_repo.start_appeal.assert_not_called()
+            assert await _get_fsm_state(dp) is None
+            assert len(_private_sends(bot)) == 0
+
+    async def test_deadline_none_proceeds(self, mocks: MockHolder) -> None:
+        """appeal_deadline=None (old course) → normal happy path."""
+        _setup_start(mocks, course=_course(appeal_deadline=None))
+        dp = await create_test_dispatcher(mocks)
+        async with MockTelegramBot(dp, user_id=USER_ID) as bot:
+            _seed(bot)
+            await bot.click_button(_start_cb(), CALLBACK_MSG_ID)
+
+            mocks.course_repo.start_appeal.assert_called_once()
+            assert await _get_fsm_state(dp) == AppealStates.video.state
+            assert len(_private_sends(bot)) == 1
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Appeal FSM Step 1 — Video

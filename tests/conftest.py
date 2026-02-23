@@ -214,6 +214,7 @@ async def create_test_course(
     appeal_count: int = 0,
     extended: bool = False,
     late_dates: list[str] | None = None,
+    appeal_deadline: str | None = None,
 ) -> Course:
     """Create a test course in kok.courses."""
     data: dict = {
@@ -236,6 +237,8 @@ async def create_test_course(
         data["late_dates"] = late_dates
     else:
         data["late_dates"] = []
+    if appeal_deadline is not None:
+        data["appeal_deadline"] = appeal_deadline
 
     response = await (
         supabase.schema("kok").table("courses").insert(data).execute()

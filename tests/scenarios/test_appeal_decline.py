@@ -165,7 +165,7 @@ class TestAppealDeclineScenario:
             # -- Girl: removal message + appeal button --
             girl_msg = girl.get_last_bot_message()
             assert girl_msg is not None
-            assert girl_msg.text == WorkerTemplates.removal_no_video("Test Manager")
+            assert WorkerTemplates.removal_no_video("Test Manager") in girl_msg.text
             assert girl_msg.has_inline_keyboard(), "Girl should see appeal button"
             appeal_cb = girl_msg.get_button_callback_data("Апелляция")
             assert appeal_cb is not None, "Appeal button not found"
@@ -195,9 +195,10 @@ class TestAppealDeclineScenario:
             girl.clear_requests_only()
 
             # ══════════════════════════════════════════════════════════
-            # STEP 2: Girl starts appeal
+            # STEP 2: Girl starts appeal (within appeal_deadline)
             # ══════════════════════════════════════════════════════════
-            await girl.click_button(appeal_cb, removal_msg_id)
+            with freeze_time(WORKER_TIME + timedelta(hours=1)):
+                await girl.click_button(appeal_cb, removal_msg_id)
 
             # -- DB: status changed --
             c = await course_repo.get_by_id(course.id)

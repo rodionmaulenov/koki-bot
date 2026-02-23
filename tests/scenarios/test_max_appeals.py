@@ -177,7 +177,7 @@ class TestMaxAppealsScenario:
             # -- Girl: removal message WITH appeal button --
             girl_msg = girl.get_last_bot_message()
             assert girl_msg is not None
-            assert girl_msg.text == WorkerTemplates.removal_no_video("Test Manager")
+            assert WorkerTemplates.removal_no_video("Test Manager") in girl_msg.text
             assert girl_msg.has_inline_keyboard(), \
                 "Appeal button should be present (appeal_count=1 < MAX_APPEALS=2)"
             appeal_cb = girl_msg.get_button_callback_data("Апелляция")
@@ -196,9 +196,10 @@ class TestMaxAppealsScenario:
             girl.clear_requests_only()
 
             # ══════════════════════════════════════════════════════════
-            # STEP 2: Girl appeals (video + text)
+            # STEP 2: Girl appeals (video + text, within appeal_deadline)
             # ══════════════════════════════════════════════════════════
-            await girl.click_button(appeal_cb, removal_msg_id_1)
+            with freeze_time(WORKER_TIME_DAY1 + timedelta(hours=1)):
+                await girl.click_button(appeal_cb, removal_msg_id_1)
 
             # -- DB: status=appeal --
             c = await course_repo.get_by_id(course.id)
@@ -345,7 +346,7 @@ class TestMaxAppealsScenario:
             # -- Girl: removal message WITHOUT appeal button --
             girl_msg = girl.get_last_bot_message()
             assert girl_msg is not None
-            assert girl_msg.text == WorkerTemplates.removal_no_video("Test Manager")
+            assert WorkerTemplates.removal_no_video("Test Manager") in girl_msg.text
             assert not girl_msg.has_inline_keyboard(), \
                 "NO appeal button when appeal_count=2 >= MAX_APPEALS=2"
 

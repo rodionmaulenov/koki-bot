@@ -236,9 +236,9 @@ class TestStrikeWorkerScenario:
             girl_msg = girl.get_last_bot_message()
             assert girl_msg is not None
             dates_str = VideoTemplates.format_late_dates(c.late_dates)
-            assert girl_msg.text == VideoTemplates.private_late_removed(
+            assert VideoTemplates.private_late_removed(
                 dates_str, "Test Manager",
-            )
+            ) in girl_msg.text
             assert girl_msg.has_inline_keyboard(), \
                 "Girl should see appeal button (appeal_count=0 < MAX_APPEALS)"
             appeal_cb = girl_msg.get_button_callback_data("Апелляция")
