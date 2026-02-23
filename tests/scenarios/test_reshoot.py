@@ -139,8 +139,6 @@ class TestReshootScenario:
             assert log6.status == "pending_review"
             assert log6.private_message_id is not None
             log_id = log6.id
-            private_msg_id = log6.private_message_id
-
             # -- Girl: pending_review message --
             girl_msg = girl.get_last_bot_message()
             assert girl_msg.text == VideoTemplates.pending_review()
@@ -179,13 +177,11 @@ class TestReshootScenario:
             assert "переснять" in edited_review.text.lower()
             assert "День 6" in edited_review.text
 
-            # -- Girl: private message EDITED → reshoot instructions --
-            edited_private = girl.chat_state.get_message(
-                GIRL_TG_ID, private_msg_id,
-            )
-            assert edited_private is not None
-            assert "переснять" in edited_private.text.lower()
-            assert "отправь сюда" in edited_private.text.lower()
+            # -- Girl: NEW reshoot message sent --
+            reshoot_msg = girl.get_last_bot_message()
+            assert reshoot_msg is not None
+            assert "переснять" in reshoot_msg.text.lower()
+            assert "отправь сюда" in reshoot_msg.text.lower()
 
             # -- Topic icon → 💡 (reshoot waiting) --
             topic = girl.get_forum_topic(KOK_GROUP_ID, TOPIC_ID)

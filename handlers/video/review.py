@@ -1,7 +1,7 @@
 import logging
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup
 from dishka.integrations.aiogram import FromDishka
 
@@ -331,15 +331,17 @@ async def on_reshoot(
         VideoTemplates.topic_reshoot(intake_log.day, deadline_str, remaining),
     )
 
-    # 3. Edit girl's private message
+    # 3. Send reshoot message to girl
     user = await user_repository.get_by_id(course.user_id)
-    if user and user.telegram_id and intake_log.private_message_id:
-        await _edit_private_message(
-            callback.bot,
-            user.telegram_id,
-            intake_log.private_message_id,
-            VideoTemplates.private_reshoot(deadline_str, remaining),
-        )
+    if user and user.telegram_id:
+        try:
+            await tg_retry(
+                callback.bot.send_message,
+                chat_id=user.telegram_id,
+                text=VideoTemplates.private_reshoot(deadline_str, remaining),
+            )
+        except TelegramForbiddenError:
+            logger.info("Girl blocked bot, telegram_id=%d", user.telegram_id)
 
     # 4. Change topic icon → 💡 (reshoot waiting)
     if user and user.topic_id:

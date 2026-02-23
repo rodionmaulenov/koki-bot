@@ -154,6 +154,12 @@ def _private_edits(bot: MockTelegramBot) -> list[TrackedRequest]:
             if str(r.data.get("message_id")) == str(PRIVATE_MSG_ID)]
 
 
+def _private_sends(bot: MockTelegramBot) -> list[TrackedRequest]:
+    """sendMessage to girl's private chat (by USER_ID)."""
+    reqs = bot._server.tracker.get_requests_by_method("sendMessage")
+    return [r for r in reqs if str(r.data.get("chat_id")) == str(USER_ID)]
+
+
 def _callback_edits(bot: MockTelegramBot) -> list[TrackedRequest]:
     """editMessageText for callback message (by CALLBACK_MSG_ID)."""
     return [r for r in _edits(bot)
@@ -914,9 +920,9 @@ class TestOnReshoot:
         async with MockTelegramBot(dp) as bot:
             _seed(bot)
             await bot.click_button(_reshoot(), message_id=CALLBACK_MSG_ID)
-            pe = _private_edits(bot)
-            assert len(pe) == 1
-            text = pe[0].data.get("text", "")
+            ps = _private_sends(bot)
+            assert len(ps) == 1
+            text = ps[0].data.get("text", "")
             assert "переснять видео" in text
             assert DEADLINE_STR in text
             assert "осталось" in text
@@ -946,7 +952,7 @@ class TestOnReshoot:
         async with MockTelegramBot(dp) as bot:
             _seed(bot)
             await bot.click_button(_reshoot(), message_id=CALLBACK_MSG_ID)
-            assert len(_private_edits(bot)) == 0
+            assert len(_private_sends(bot)) == 0
             assert len(_forum_edits(bot)) == 0
 
     async def test_no_topic_id_skips_icon(self, mocks: MockHolder):
@@ -972,12 +978,4 @@ class TestOnReshoot:
         async with MockTelegramBot(dp) as bot:
             _seed(bot)
             await bot.click_button(_reshoot(), message_id=CALLBACK_MSG_ID)
-            assert len(_private_edits(bot)) == 0
-
-    async def test_no_private_msg_id_skips_private(self, mocks: MockHolder):
-        _setup_reshoot(mocks, log=_log(private_message_id=None))
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp) as bot:
-            _seed(bot)
-            await bot.click_button(_reshoot(), message_id=CALLBACK_MSG_ID)
-            assert len(_private_edits(bot)) == 0
+            assert len(_private_sends(bot)) == 0
