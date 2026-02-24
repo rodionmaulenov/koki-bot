@@ -29,10 +29,6 @@ async def on_reissue_start(
     manager_repository: FromDishka[ManagerRepository],
 ) -> None:
     manager = await manager_repository.get_by_telegram_id(callback.from_user.id)
-    if manager is None:
-        logger.warning("Reissue denied, not a manager: telegram_id=%s", callback.from_user.id)
-        await callback.answer(ReissueTemplates.manager_only(), show_alert=True)
-        return
 
     now = get_tashkent_now()
     if now.hour >= EVENING_CUTOFF_HOUR:

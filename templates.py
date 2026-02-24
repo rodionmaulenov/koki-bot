@@ -209,7 +209,7 @@ class AddTemplates:
 
     @staticmethod
     def error_try_later() -> str:
-        return "Ошибка, попробуйте позже через 5 минут"
+        return "Ошибка, попробуйте позже через 1 минуту"
 
     # --- Уведомление бухгалтеру ---
 
@@ -286,10 +286,6 @@ class ReissueTemplates:
         ReissueCategory.EXPIRED: "🔴 Просрочено:",
     }
 
-    @staticmethod
-    def manager_only() -> str:
-        return "Функция доступна только менеджерам"
-
     @classmethod
     def select_girl(cls, girls: Sequence[ReissueGirl]) -> str:
         lines: list[str] = []
@@ -320,7 +316,7 @@ class ReissueTemplates:
 
     @staticmethod
     def error_try_later() -> str:
-        return "Ошибка, попробуйте позже через 5 минут"
+        return "Ошибка, попробуйте позже через 1 минуту"
 
 
 class OnboardingTemplates:

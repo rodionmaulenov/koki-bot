@@ -10,11 +10,10 @@ from redis.asyncio import Redis
 from callbacks.menu import MenuAction, MenuCallback
 from models.ocr import OCRServerError
 from repositories.course_repository import CourseRepository
-from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from services.ocr_service import OCRService
 from states.add import AddStates
-from templates import AddTemplates, ReissueTemplates
+from templates import AddTemplates
 from topic_access.message_middleware import ADD_ACTIVE_KEY_PREFIX
 from utils.message import delete_user_message, edit_or_send, extract_image_file_id
 from utils.time import get_tashkent_now
@@ -43,14 +42,8 @@ def _validate_birth_date(raw: str | None) -> str | None:
 async def on_add_start(
     callback: CallbackQuery,
     state: FSMContext,
-    manager_repository: FromDishka[ManagerRepository],
     redis: FromDishka[Redis],
 ) -> None:
-    manager = await manager_repository.get_by_telegram_id(callback.from_user.id)
-    if manager is None:
-        await callback.answer(ReissueTemplates.manager_only(), show_alert=True)
-        return
-
     now = get_tashkent_now()
     if now.hour >= EVENING_CUTOFF_HOUR:
         await callback.answer(AddTemplates.time_restricted(), show_alert=True)

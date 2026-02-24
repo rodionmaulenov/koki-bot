@@ -158,18 +158,6 @@ def _bot_kw() -> dict[str, Any]:
 class TestOnReissueStart:
     """7 tests for on_reissue_start callback handler."""
 
-    async def test_not_a_manager(self, mocks: MockHolder) -> None:
-        mocks.manager_repo.get_by_telegram_id.return_value = None
-        dp = await create_test_dispatcher(mocks)
-        async with MockTelegramBot(dp, **_bot_kw()) as bot:
-            _seed_menu(bot)
-            await bot.click_button(_reissue_start_cb(), MENU_MSG_ID)
-            alerts = _alert_answers(bot)
-            assert len(alerts) == 1
-            assert ReissueTemplates.manager_only() in alerts[0].data.get("text", "")
-            assert _is_alert(alerts[0])
-            assert len(_sends(bot)) == 0
-
     @patch("handlers.reissue.get_tashkent_now", return_value=TIME_19)
     async def test_service_exception(self, _mock_now, mocks: MockHolder) -> None:
         mocks.manager_repo.get_by_telegram_id.return_value = _manager()
