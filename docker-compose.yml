@@ -23,10 +23,9 @@ services:
         limits:
           memory: 64M
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "10m"
-        max-file: "3"
+        tag: "koki-redis"
 
   # -----------------------------------------
   # Bot — Telegram polling + internal scheduler
@@ -55,10 +54,9 @@ services:
         limits:
           memory: 256M
     logging:
-      driver: json-file
+      driver: journald
       options:
-        max-size: "50m"
-        max-file: "5"
+        tag: "koki-bot"
 
 volumes:
   redis_data:
