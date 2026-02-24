@@ -852,13 +852,15 @@ class TestHandleVideoTopicNotifications:
             assert str(TOPIC_ICON_ACTIVE) in icons
 
     async def test_topic_icon_not_changed_day2(self, mocks: MockHolder):
-        """Day 2, not reshoot → icon NOT changed."""
+        """Day 2, not reshoot → icon NOT changed, but name IS updated."""
         _setup_happy_path(mocks)  # current_day=5, day=6
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp) as bot:
             await bot.send_video_note()
             edit_reqs = _get_edit_topic_reqs(bot)
-            assert len(edit_reqs) == 0
+            assert len(edit_reqs) == 1  # only name update
+            assert "name" in edit_reqs[0].data
+            assert "icon_custom_emoji_id" not in edit_reqs[0].data
 
     async def test_topic_video_fail_returns(self, mocks: MockHolder):
         """sendVideoNote to topic fails → no status message sent to topic."""
@@ -1370,8 +1372,11 @@ class TestCompletionTopicErrors:
             await bot.send_video_note()
             # No completion text, icon change, or close
             assert len(_get_topic_sends(bot)) == 0
-            assert len(_get_edit_topic_reqs(bot)) == 0
             assert len(_get_close_topic_reqs(bot)) == 0
+            # Only topic name update (not icon)
+            edits = _get_edit_topic_reqs(bot)
+            for e in edits:
+                assert "icon_custom_emoji_id" not in e.data
 
     async def test_completion_text_fails(self, mocks: MockHolder):
         """Completion text send fails → icon and close still attempted."""

@@ -108,7 +108,7 @@ async def run(
                     icon_custom_emoji_id=str(TOPIC_ICON_REFUSED),
                 )
             except Exception:
-                logger.warning("Failed to change icon for topic_id=%d", user.topic_id)
+                logger.error("Failed to change icon for topic_id=%d", user.topic_id)
 
             try:
                 await tg_retry(

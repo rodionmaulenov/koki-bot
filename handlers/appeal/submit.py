@@ -262,7 +262,7 @@ async def on_appeal_text(
     delta = deadline - now
     total_minutes = max(int(delta.total_seconds()) // 60, 0)
     hours, minutes = divmod(total_minutes, 60)
-    remaining = format_remaining(hours, minutes)
+    remaining = format_remaining(hours, minutes, lang="ru")
 
     # DM to manager
     try:

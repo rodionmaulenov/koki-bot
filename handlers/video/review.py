@@ -13,7 +13,7 @@ from repositories.intake_log_repository import IntakeLogRepository
 from repositories.manager_repository import ManagerRepository
 from repositories.user_repository import UserRepository
 from services.video_service import LATE_THRESHOLD_MINUTES, VideoService
-from templates import VideoTemplates, fallback_manager_name, format_remaining
+from templates import OnboardingTemplates, VideoTemplates, fallback_manager_name, format_remaining
 from utils.telegram_retry import tg_retry
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ async def on_confirm(
     intake_log_repository: FromDishka[IntakeLogRepository],
     course_repository: FromDishka[CourseRepository],
     user_repository: FromDishka[UserRepository],
+    manager_repository: FromDishka[ManagerRepository],
     video_service: FromDishka[VideoService],
     settings: FromDishka[Settings],
 ) -> None:
@@ -164,6 +165,29 @@ async def on_confirm(
         except Exception:
             logger.warning("Failed to change topic icon for topic_id=%d", user.topic_id)
 
+    # 5. Update topic name with current progress
+    if user and user.topic_id:
+        try:
+            manager = await manager_repository.get_by_id(user.manager_id)
+            mgr_name = manager.name if manager else "?"
+            name_parts = user.name.split() if user.name else []
+            topic_title = OnboardingTemplates.topic_name(
+                last_name=name_parts[0] if name_parts else "Unknown",
+                first_name=name_parts[1] if len(name_parts) > 1 else "",
+                patronymic=" ".join(name_parts[2:]) if len(name_parts) > 2 else None,
+                manager_name=mgr_name,
+                current_day=intake_log.day,
+                total_days=course.total_days,
+            )
+            await tg_retry(
+                callback.bot.edit_forum_topic,
+                chat_id=settings.kok_group_id,
+                message_thread_id=user.topic_id,
+                name=topic_title,
+            )
+        except Exception:
+            logger.warning("Failed to update topic name for topic_id=%d", user.topic_id)
+
     await callback.answer()
     logger.info(
         "Manager %s confirmed day %d for course_id=%d%s",
@@ -267,15 +291,16 @@ async def on_reshoot(
     delta = deadline - now
     total_minutes = max(int(delta.total_seconds()) // 60, 0)
     hours, minutes = divmod(total_minutes, 60)
+    remaining_ru = format_remaining(hours, minutes, lang="ru")
     remaining = format_remaining(hours, minutes)
 
-    # 2. Edit topic message: remove buttons, show reshoot text
+    # 2. Edit topic message: remove buttons, show reshoot text (Russian for manager)
     await _edit_callback_message(
         callback,
-        VideoTemplates.topic_reshoot(intake_log.day, deadline_str, remaining),
+        VideoTemplates.topic_reshoot(intake_log.day, deadline_str, remaining_ru),
     )
 
-    # 3. Send reshoot message to girl
+    # 3. Send reshoot message to girl (uses BOT_LANG)
     user = await user_repository.get_by_id(course.user_id)
     if user and user.telegram_id:
         try:

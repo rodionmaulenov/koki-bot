@@ -25,7 +25,7 @@ from services.video_service import (
     VideoService,
     WindowStatus,
 )
-from templates import VideoTemplates, format_remaining
+from templates import OnboardingTemplates, VideoTemplates, format_remaining
 from utils.telegram_retry import tg_retry
 from utils.time import get_tashkent_now
 
@@ -363,6 +363,13 @@ async def _handle_video(
                 message.bot, settings, topic_id, late_count, max_strikes,
             )
 
+    # 10.5 Update topic name with current progress
+    if approved and topic_id and user:
+        await _update_topic_name(
+            message.bot, settings, topic_id, user, manager_repository,
+            next_day, course.total_days,
+        )
+
     # 11. Notify manager if pending review
     if not approved and not is_completed and user:
         await _notify_manager(
@@ -487,6 +494,13 @@ async def _handle_reshoot(
             is_reshoot=True,
         )
 
+    # 7.5 Update topic name with current progress
+    if approved and topic_id and user:
+        await _update_topic_name(
+            message.bot, settings, topic_id, user, manager_repository,
+            reshoot_log.day, course.total_days,
+        )
+
     # 8. Notify manager if pending review
     if not approved and not is_completed and user:
         await _notify_manager(
@@ -596,7 +610,7 @@ async def _notify_manager(
     delta = deadline - now
     total_minutes = max(int(delta.total_seconds()) // 60, 0)
     hours, minutes = divmod(total_minutes, 60)
-    remaining = format_remaining(hours, minutes)
+    remaining = format_remaining(hours, minutes, lang="ru")
 
     # 1. DM to manager (may fail if manager hasn't started bot)
     try:
@@ -717,6 +731,38 @@ async def _send_late_warning_to_topic(
         )
     except Exception:
         logger.exception("Failed to send late warning to topic_id=%d", topic_id)
+
+
+async def _update_topic_name(
+    bot: Bot,
+    settings: Settings,
+    topic_id: int,
+    user: User,
+    manager_repository: ManagerRepository,
+    current_day: int,
+    total_days: int,
+) -> None:
+    """Update topic name with current progress (e.g. 'Ivanova A. (Manager) 5/21')."""
+    try:
+        manager = await manager_repository.get_by_id(user.manager_id)
+        manager_name = manager.name if manager else "?"
+        name_parts = user.name.split() if user.name else []
+        topic_title = OnboardingTemplates.topic_name(
+            last_name=name_parts[0] if name_parts else "Unknown",
+            first_name=name_parts[1] if len(name_parts) > 1 else "",
+            patronymic=" ".join(name_parts[2:]) if len(name_parts) > 2 else None,
+            manager_name=manager_name,
+            current_day=current_day,
+            total_days=total_days,
+        )
+        await tg_retry(
+            bot.edit_forum_topic,
+            chat_id=settings.kok_group_id,
+            message_thread_id=topic_id,
+            name=topic_title,
+        )
+    except Exception:
+        logger.warning("Failed to update topic name for topic_id=%d", topic_id)
 
 
 async def _edit_safe(

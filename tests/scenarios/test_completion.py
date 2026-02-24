@@ -23,7 +23,7 @@ from models.video_result import VideoResult
 from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from services.gemini_service import GeminiService
-from templates import VideoTemplates
+from templates import OnboardingTemplates, VideoTemplates
 from tests.conftest import create_test_course, create_test_manager, create_test_user
 from tests.mock_server import MockTelegramBot
 from tests.mock_server.chat_state import ForumTopic
@@ -149,9 +149,16 @@ class TestCompletionScenario:
                 "Video note should be sent to topic"
             assert topic_msgs[1].text == VideoTemplates.topic_approved(20, TOTAL_DAYS)
 
-            # -- Topic: NOT closed (regular video doesn't change icon) --
+            # -- Topic: NOT closed, name updated to 20/21 --
             topic = girl.get_forum_topic(KOK_GROUP_ID, TOPIC_ID)
             assert not topic.is_closed, "Topic should NOT be closed yet"
+            expected_name = OnboardingTemplates.topic_name(
+                last_name="Ivanova", first_name="Daria",
+                patronymic=None, manager_name="Test Manager",
+                current_day=20, total_days=TOTAL_DAYS,
+            )
+            assert topic.name == expected_name, \
+                f"Topic name should be updated to 20/21, got '{topic.name}'"
 
             girl.clear_requests_only()
 
@@ -200,10 +207,17 @@ class TestCompletionScenario:
             )
             assert "завершена" in topic_msgs[3].text.lower()
 
-            # -- Topic icon → ✅ --
+            # -- Topic icon → ✅, name updated to 21/21 --
             topic = girl.get_forum_topic(KOK_GROUP_ID, TOPIC_ID)
             assert topic.icon_custom_emoji_id == str(TOPIC_ICON_COMPLETED), \
                 "Topic icon should be ✅ after completion"
+            expected_name = OnboardingTemplates.topic_name(
+                last_name="Ivanova", first_name="Daria",
+                patronymic=None, manager_name="Test Manager",
+                current_day=21, total_days=TOTAL_DAYS,
+            )
+            assert topic.name == expected_name, \
+                f"Topic name should be updated to 21/21, got '{topic.name}'"
 
             # -- Topic CLOSED --
             assert topic.is_closed, \

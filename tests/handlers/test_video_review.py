@@ -306,15 +306,16 @@ class TestOnConfirmHappyPath:
             assert len(_answers(bot)) >= 1
 
     async def test_first_day_icon_active(self, mocks: MockHolder):
-        """day=1, not late → icon changes to TOPIC_ICON_ACTIVE."""
+        """day=1, not late → icon changes to TOPIC_ICON_ACTIVE + name updated."""
         _setup_confirm(mocks, log=_log(day=1))
         dp = await create_test_dispatcher(mocks)
         async with MockTelegramBot(dp) as bot:
             _seed(bot)
             await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
             fe = _forum_edits(bot)
-            assert len(fe) == 1
+            assert len(fe) == 2  # icon + name
             assert fe[0].data.get("icon_custom_emoji_id") == str(TOPIC_ICON_ACTIVE)
+            assert "1/" in fe[1].data.get("name", "")
 
 
 class TestOnConfirmLateBoundary:
@@ -413,8 +414,11 @@ class TestOnConfirmLateStrike:
             sends = _group_sends(bot, topic_id=TOPIC_ID)
             assert len(sends) == 1
             assert VideoTemplates.topic_late_warning(1, 3) == sends[0].data.get("text")
-            # No icon change (late branch takes priority over day==1)
-            assert len(_forum_edits(bot)) == 0
+            # No icon change (late branch takes priority over day==1),
+            # but topic name IS updated
+            fe = _forum_edits(bot)
+            assert len(fe) == 1
+            assert "name" in fe[0].data
 
 
 class TestOnConfirmCompletion:
@@ -462,8 +466,9 @@ class TestOnConfirmCompletion:
             _seed(bot)
             await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
             fe = _forum_edits(bot)
-            assert len(fe) == 1
+            assert len(fe) == 2  # icon + name
             assert fe[0].data.get("icon_custom_emoji_id") == str(TOPIC_ICON_COMPLETED)
+            assert "name" in fe[1].data
 
     async def test_completion_topic_closed(self, mocks: MockHolder):
         self._setup(mocks)
@@ -504,9 +509,9 @@ class TestOnConfirmCompletion:
             _seed(bot)
             _fail(bot, "closeForumTopic")
             await bot.click_button(_confirm(), message_id=CALLBACK_MSG_ID)
-            # Icon still changed
+            # Icon + name still changed
             fe = _forum_edits(bot)
-            assert len(fe) == 1
+            assert len(fe) == 2  # icon + name
             assert len(_answers(bot)) >= 1
 
 

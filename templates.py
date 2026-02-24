@@ -22,11 +22,15 @@ def fallback_manager_name() -> str:
     return _t("менеджер", "menejer")
 
 
-def format_remaining(hours: int, minutes: int) -> str:
-    """Format remaining time: '2ч 30мин' or '2 soat 30 daq'."""
+def format_remaining(hours: int, minutes: int, *, lang: str | None = None) -> str:
+    """Format remaining time: '2ч 30мин' or '2 soat 30 daq'.
+
+    lang='ru' forces Russian, lang='uz' forces Uzbek. None uses BOT_LANG.
+    """
+    use_lang = lang or _lang
     if hours > 0:
-        return _t(f"{hours}ч {minutes}мин", f"{hours} soat {minutes} daq")
-    return _t(f"{minutes}мин", f"{minutes} daq")
+        return f"{hours}ч {minutes}мин" if use_lang == "ru" else f"{hours} soat {minutes} daq"
+    return f"{minutes}мин" if use_lang == "ru" else f"{minutes} daq"
 
 
 def _topic_link(name: str, topic_id: int | None, group_id: int | None) -> str:

@@ -21,7 +21,7 @@ from repositories.course_repository import CourseRepository
 from repositories.intake_log_repository import IntakeLogRepository
 from services.gemini_service import GeminiService
 from services.video_service import BASE_MAX_STRIKES
-from templates import VideoTemplates
+from templates import OnboardingTemplates, VideoTemplates
 from tests.conftest import create_test_course, create_test_manager, create_test_user
 from tests.mock_server import MockTelegramBot
 from tests.mock_server.chat_state import ForumTopic
@@ -148,6 +148,16 @@ class TestStrikeAccumulationScenario:
             assert topic_msgs[0].video_note is not None, "First topic msg should be video_note"
             assert topic_msgs[1].text == VideoTemplates.topic_approved(3, TOTAL_DAYS)
 
+            # -- Topic name updated to 3/21 --
+            topic = girl.get_forum_topic(KOK_GROUP_ID, TOPIC_ID)
+            expected_name = OnboardingTemplates.topic_name(
+                last_name="Ivanova", first_name="Marina",
+                patronymic=None, manager_name="Test Manager",
+                current_day=3, total_days=TOTAL_DAYS,
+            )
+            assert topic.name == expected_name, \
+                f"Topic name should be 3/21, got '{topic.name}'"
+
             girl.clear_requests_only()
 
             # ══════════════════════════════════════════════════════════
@@ -261,3 +271,13 @@ class TestStrikeAccumulationScenario:
             assert topic_msgs[8].video_note is not None
             assert topic_msgs[9].text == VideoTemplates.topic_approved(6, TOTAL_DAYS)
             assert topic_msgs[10].text == VideoTemplates.topic_late_warning(3, max_strikes)
+
+            # -- Topic name updated to 6/21 (even with 3 strikes) --
+            topic = girl.get_forum_topic(KOK_GROUP_ID, TOPIC_ID)
+            expected_name = OnboardingTemplates.topic_name(
+                last_name="Ivanova", first_name="Marina",
+                patronymic=None, manager_name="Test Manager",
+                current_day=6, total_days=TOTAL_DAYS,
+            )
+            assert topic.name == expected_name, \
+                f"Topic name should be 6/21, got '{topic.name}'"
